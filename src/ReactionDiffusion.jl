@@ -11,7 +11,7 @@ include("package_scripts.jl")
 
 export returnTuringParams, @reaction_network, model_parameters, screen_values
 export get_params, get_param
-export simulate, simulate_spectral
+export simulate
 export @save, @load
 export endpoint, timepoint
 

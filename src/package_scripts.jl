@@ -391,16 +391,8 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,param;alg=KenCarp4(),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
-
-    n_params = length(parameters(model))
-    n_species = length(unknowns(model))
-
-    p,d,ic, l, seed, noise = returnSingleParameter(model, param)
-
-    q_ = [p; d/(l^2)]
-    u0 = createIC(ic, seed, noise)
-    du = similar(u0)
+function simulate(model,param;alg=KenCarp3(autodiff=true),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+    p, d, ic, l, seed, noise = returnSingleParameter(model, param)
 
     # convert reaction network to ODESystem
     odesys = convert(ODESystem, model)
@@ -410,79 +402,24 @@ function simulate(model,param;alg=KenCarp4(),reltol=1e-6,abstol=1e-8, dt = 0.1, 
     f_oop = ModelingToolkit.eval(f_gen)
     f_ode(u,p,t) = f_oop(u,p,t)
 
-    # build PDE function
-    function f_reflective(u,q)
-        du_rxn = mapslices(u,dims=2) do x
-            f_ode(x,q[1:n_params],0.0)
-        end
-        du_rxn + q[(n_params + 1):(n_params + n_species)]' .* (n_gridpoints^2*M * u)
-    end
-    
-    # Build optimized Jacobian and ODE functions using Symbolics.jl
+    u0::Matrix{Float64} = collect(createIC(ic, seed, noise)') #?
 
-    @variables uᵣ[1:n_gridpoints,1:n_species]
-    @parameters qᵣ[1:(n_params+n_species)]
-    
-    duᵣ = Symbolics.simplify.(f_reflective(collect(uᵣ),collect(qᵣ)))
-    
-
-
-    fᵣ = eval(Symbolics.build_function(duᵣ,vec(uᵣ),qᵣ;
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-    jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
-    fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),qᵣ,
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-
-                
-    prob_fn = ODEFunction((du,u,q,t)->fᵣ(du,vec(u),q), jac = (du,u,q,t) -> fjacᵣ(du,vec(u),q), jac_prototype = similar(jacᵣ,Float64))
-
-    ## code below is for prescribed tspan values as input argument
-    # prob = ODEProblem(prob_fn,u0,tspan,q_)
-    # sol = solve(prob,alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    # return sol
-
-    prob = SteadyStateProblem(prob_fn,u0,q_)
-    sol = solve(prob,DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-
-   return sol.original
-
-end
-
-struct endpoint end
-
-function simulate_spectral(model,param;alg=KenCarp3(autodiff=false),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
-
-    n_params = length(parameters(model))
-    n_species = length(unknowns(model))
-
-    p,d,ic, l, seed, noise = returnSingleParameter(model, param)
-
-    # convert reaction network to ODESystem
-    odesys = convert(ODESystem, model)
-
-    # build ODE function
-    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_oop = ModelingToolkit.eval(f_gen)
-    f_ode(u,p,t) = f_oop(u,p,t)
-
-    u0 = transpose(createIC(ic, seed, noise))
-
-    plan! = plan_dct!(u0, 2) # in-place versions broke everything :(
+    plan! = plan_dct!(u0, 2)
     plan! * u0
-    iplan! = plan_idct!(u0, 2)
+    iplan = plan_idct(u0, 2) # out of place so we don't overwrite u in f_n!.
 
     k = rfftfreq(2*(n_gridpoints-1),2pi*n_gridpoints) # check
     k² = k.^2
-    λ = [-d * k² for d in d, k² in k²]
+    λ = [-d * k²/l^2 for d in d, k² in k²]
 
     function f_d!(du,u,p,t)
-        mul!(du, λ, u)
+        du .= λ .* u
     end
 
     function f_n!(du,u,p,t)
-        iplan! * u
+        du .= iplan * u
         for i in 1:n_gridpoints
-            du[:,i] = f_ode(u[:,i],p,t)
+            du[:,i] = f_ode(du[:,i],p,t)
         end
         plan! * du
     end
@@ -496,12 +433,11 @@ function simulate_spectral(model,param;alg=KenCarp3(autodiff=false),reltol=1e-6,
     # return sol
     prob = SteadyStateProblem(odeprob)
     sol = solve(prob,DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    for u in sol.original.u
-        iplan! * u
-    end
-    u = transpose.(sol.original.u)
+    u = [(iplan * u)' for u in sol.original.u]
     DiffEqArray(u,sol.original.t)
 end
+
+struct endpoint end
 
 @recipe function plot(::endpoint, model, sol)
     pattern = last(sol)
