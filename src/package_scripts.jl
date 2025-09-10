@@ -450,6 +450,58 @@ end
 
 struct endpoint end
 
+function simulate_spectral(model,param;alg=KenCarp3(autodiff=false),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+
+    n_params = length(parameters(model))
+    n_species = length(unknowns(model))
+
+    p,d,ic, l, seed, noise = returnSingleParameter(model, param)
+
+    # convert reaction network to ODESystem
+    odesys = convert(ODESystem, model)
+
+    # build ODE function
+    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
+    f_oop = ModelingToolkit.eval(f_gen)
+    f_ode(u,p,t) = f_oop(u,p,t)
+
+    u0 = transpose(createIC(ic, seed, noise))
+
+    plan! = plan_dct!(u0, 2) # in-place versions broke everything :(
+    plan! * u0
+    iplan! = plan_idct!(u0, 2)
+
+    k = rfftfreq(2*(n_gridpoints-1),2pi*n_gridpoints) # check
+    k² = k.^2
+    λ = [-d * k² for d in d, k² in k²]
+
+    function f_d!(du,u,p,t)
+        mul!(du, λ, u)
+    end
+
+    function f_n!(du,u,p,t)
+        iplan! * u
+        for i in 1:n_gridpoints
+            du[:,i] = f_ode(u[:,i],p,t)
+        end
+        plan! * du
+    end
+
+
+    odeprob = SplitODEProblem(f_d!, f_n!, u0, (0,Inf), p)
+
+    ## code below is for prescribed tspan values as input argument
+    # prob = ODEProblem(prob_fn,u0,tspan,q_)
+    # sol = solve(prob,alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    # return sol
+    prob = SteadyStateProblem(odeprob)
+    sol = solve(prob,DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    for u in sol.original.u
+        iplan! * u
+    end
+    u = transpose.(sol.original.u)
+    DiffEqArray(u,sol.original.t)
+end
 
 @recipe function plot(::endpoint, model, sol)
     pattern = last(sol)
