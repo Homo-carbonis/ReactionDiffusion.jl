@@ -391,7 +391,85 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,param;alg=KenCarp3(autodiff=false),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+function simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+    prob = discretisation(model, param)
+    if isnothing(alg)
+        solve(prob; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    else
+        solve(prob, DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    end
+end
+
+struct FiniteDifferenceProblem
+    ssproblem
+end
+
+"Discretise the model using a central difference scheme"
+function FiniteDifferenceProblem(model,param)
+    n_params = length(parameters(model))
+    n_species = length(unknowns(model))
+
+    p,d,ic, l, seed, noise = returnSingleParameter(model, param)
+
+    q_ = [p; d/(l^2)]
+    u0 = createIC(ic, seed, noise)
+    du = similar(u0)
+
+    # convert reaction network to ODESystem
+    odesys = convert(ODESystem, model)
+
+    # build ODE function
+    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
+    f_oop = ModelingToolkit.eval(f_gen)
+    f_ode(u,p,t) = f_oop(u,p,t)
+
+    # build PDE function
+    function f_reflective(u,q)
+        du_rxn = mapslices(u,dims=2) do x
+            f_ode(x,q[1:n_params],0.0)
+        end
+        du_rxn + q[(n_params + 1):(n_params + n_species)]' .* (n_gridpoints^2*M * u)
+    end
+    
+    # Build optimized Jacobian and ODE functions using Symbolics.jl
+
+    @variables uᵣ[1:n_gridpoints,1:n_species]
+    @parameters qᵣ[1:(n_params+n_species)]
+    
+    duᵣ = Symbolics.simplify.(f_reflective(collect(uᵣ),collect(qᵣ)))
+    
+
+
+    fᵣ = eval(Symbolics.build_function(duᵣ,vec(uᵣ),qᵣ;
+                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
+    jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
+    fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),qᵣ,
+                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
+
+                
+    prob_fn = ODEFunction((du,u,q,t)->fᵣ(du,vec(u),q), jac = (du,u,q,t) -> fjacᵣ(du,vec(u),q), jac_prototype = similar(jacᵣ,Float64))
+
+    ## code below is for prescribed tspan values as input argument
+    # prob = ODEProblem(prob_fn,u0,tspan,q_)
+    # sol = solve(prob,alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    # return sol
+
+    FiniteDifferenceProblem(SteadyStateProblem(prob_fn,u0,q_))
+end
+
+function DifferentialEquations.solve(problem::FiniteDifferenceProblem, alg=KenCarp4(); kwargs...)
+    solve(problem.ssproblem, DynamicSS(alg); kwargs...).original
+end
+
+
+struct PseudoSpectralProblem
+    ssproblem
+    iplan
+    y
+end
+
+"Discretise the model using the discrete cosine transform."
+function PseudoSpectralProblem(model,param)
     p, d, ic, l, seed, noise = returnSingleParameter(model, param)
 
     # convert reaction network to ODESystem
@@ -426,15 +504,28 @@ function simulate(model,param;alg=KenCarp3(autodiff=false),reltol=1e-6,abstol=1e
 
 
     odeprob = SplitODEProblem(f_d!, f_n!, u0, (0,Inf), p)
+    PseudoSpectralProblem(SteadyStateProblem(odeprob), iplan,2)
+end
 
-    ## code below is for prescribed tspan values as input argument
-    # prob = ODEProblem(prob_fn,u0,tspan,q_)
-    # sol = solve(prob,alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    # return sol
-    prob = SteadyStateProblem(odeprob)
-    sol = solve(prob,DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    u = [(iplan * u)' for u in sol.original.u]
-    DiffEqArray(u,sol.original.t)
+function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp3(autodiff=false); kwargs...)
+    (;ssproblem, iplan, y) = problem
+    sol = solve(ssproblem, DynamicSS(alg); kwargs...).original
+    transform!(sol) do u
+        collect(transpose(iplan * u))
+    end
+    sol
+end
+
+"Transform the values of an ODESolution"
+function transform!(f, sol::ODESolution)
+    for i in eachindex(sol.u)
+        sol.u[i] = f(sol.u[i])
+    end
+    for i in eachindex(sol.k)
+        for j in eachindex(sol.k[i])
+            sol.k[i][j] = f(sol.k[i][j])
+        end
+    end
 end
 
 struct endpoint end
@@ -454,8 +545,6 @@ struct endpoint end
     leg --> Symbol(:outer,:right)
     linewidth --> 2
     x, pattern
-
-
 end
 
 
