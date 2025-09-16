@@ -375,7 +375,7 @@ function createIC(ic, seed, noise)
 end
 
 """
-    simulate(model,param;alg=KenCarp4(),reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+    simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
 
 Simulate `model` for a single parameter set `param`.
 
@@ -392,84 +392,6 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
  
 """
 function simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
-    prob = discretisation(model, param)
-    if isnothing(alg)
-        solve(prob; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    else
-        solve(prob, DynamicSS(alg); dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    end
-end
-
-struct FiniteDifferenceProblem
-    ssproblem
-end
-
-"Discretise the model using a central difference scheme"
-function FiniteDifferenceProblem(model,param)
-    n_params = length(parameters(model))
-    n_species = length(unknowns(model))
-
-    p,d,ic, l, seed, noise = returnSingleParameter(model, param)
-
-    q_ = [p; d/(l^2)]
-    u0 = createIC(ic, seed, noise)
-    du = similar(u0)
-
-    # convert reaction network to ODESystem
-    odesys = convert(ODESystem, model)
-
-    # build ODE function
-    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_oop = ModelingToolkit.eval(f_gen)
-    f_ode(u,p,t) = f_oop(u,p,t)
-
-    # build PDE function
-    function f_reflective(u,q)
-        du_rxn = mapslices(u,dims=2) do x
-            f_ode(x,q[1:n_params],0.0)
-        end
-        du_rxn + q[(n_params + 1):(n_params + n_species)]' .* (n_gridpoints^2*M * u)
-    end
-    
-    # Build optimized Jacobian and ODE functions using Symbolics.jl
-
-    @variables uᵣ[1:n_gridpoints,1:n_species]
-    @parameters qᵣ[1:(n_params+n_species)]
-    
-    duᵣ = Symbolics.simplify.(f_reflective(collect(uᵣ),collect(qᵣ)))
-    
-
-
-    fᵣ = eval(Symbolics.build_function(duᵣ,vec(uᵣ),qᵣ;
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-    jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
-    fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),qᵣ,
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-
-                
-    prob_fn = ODEFunction((du,u,q,t)->fᵣ(du,vec(u),q), jac = (du,u,q,t) -> fjacᵣ(du,vec(u),q), jac_prototype = similar(jacᵣ,Float64))
-
-    ## code below is for prescribed tspan values as input argument
-    # prob = ODEProblem(prob_fn,u0,tspan,q_)
-    # sol = solve(prob,alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
-    # return sol
-
-    FiniteDifferenceProblem(SteadyStateProblem(prob_fn,u0,q_))
-end
-
-function DifferentialEquations.solve(problem::FiniteDifferenceProblem, alg=KenCarp4(); kwargs...)
-    solve(problem.ssproblem, DynamicSS(alg); kwargs...).original
-end
-
-
-struct PseudoSpectralProblem
-    ssproblem
-    iplan
-    y
-end
-
-"Discretise the model using the discrete cosine transform."
-function PseudoSpectralProblem(model,param)
     p, d, ic, l, seed, noise = returnSingleParameter(model, param)
 
     # convert reaction network to ODESystem
@@ -480,121 +402,7 @@ function PseudoSpectralProblem(model,param)
     f_oop = ModelingToolkit.eval(f_gen)
     f_ode(u,p,t) = f_oop(u,p,t)
 
-    u0::Matrix{Float64} = collect(createIC(ic, seed, noise)') #?
-
-    plan! = plan_dct!(u0, 2)
-    plan! * u0
-    iplan = plan_idct(u0, 2) # out of place so we don't overwrite u in f_n!.
-
-    k = rfftfreq(2*(n_gridpoints-1),2pi*n_gridpoints) # check
-    k² = k.^2
-    λ = [-d * k²/l^2 for d in d, k² in k²]
-
-    function f_d!(du,u,p,t)
-        du .= λ .* u
-    end
-
-    function f_n!(du,u,p,t)
-        du .= iplan * u
-        for i in 1:n_gridpoints
-            du[:,i] = f_ode(du[:,i],p,t)
-        end
-        plan! * du
-    end
-
-
-    odeprob = SplitODEProblem(f_d!, f_n!, u0, (0,Inf), p)
-    PseudoSpectralProblem(SteadyStateProblem(odeprob), iplan,2)
+    u0 = createIC(ic, seed, noise)
+    prob = discretisation(f_ode, u0, l, d, p)
+    solve(prob, alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
 end
-
-function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp3(autodiff=false); kwargs...)
-    (;ssproblem, iplan, y) = problem
-    sol = solve(ssproblem, DynamicSS(alg); kwargs...).original
-    transform!(sol) do u
-        collect(transpose(iplan * u))
-    end
-    sol
-end
-
-"Transform the values of an ODESolution"
-function transform!(f, sol::ODESolution)
-    for i in eachindex(sol.u)
-        sol.u[i] = f(sol.u[i])
-    end
-    for i in eachindex(sol.k)
-        for j in eachindex(sol.k[i])
-            sol.k[i][j] = f(sol.k[i][j])
-        end
-    end
-end
-
-struct endpoint end
-
-@recipe function plot(::endpoint, model, sol)
-    pattern = last(sol)
-    x = range(0,1, length = size(pattern,1))
-    labels = []
-    for state in unknowns(model)
-        push!(labels,chop(string(state), head=0,tail=3))
-    end
-
-    pattern = pattern ./ maximum(pattern,dims=1)
-
-    labels --> reshape(labels,1,length(labels))
-    ticks --> :none
-    leg --> Symbol(:outer,:right)
-    linewidth --> 2
-    x, pattern
-end
-
-
-
-
-struct timepoint end
-
-@recipe function plot(::timepoint, model, sol, t)
-    if t > 1 || t < 0
-        error("Time should be between 0 and 1, representing first and last simulation timepoints respectively)")
-    end
-
-    if t == 0
-        t = 1e-20
-    end
-
-    x = range(0,1, length = size(last(sol),1))    
-    labels = []
-    for state in unknowns(model)
-        push!(labels,chop(string(state), head=0,tail=3))
-    end
-    labels = reshape(labels,1,length(labels))
-    tfinal = sol.t[Int(ceil(t*length(sol.t)))]
-    tspan = range(0,tfinal,100)
-    normalization_factor = maximum(last(sol),dims=1)
-    for t_i in tspan
-        normalization_factor = max(vec(normalization_factor),vec(maximum(sol(t_i),dims=1)))
-    end
-    normalization_factor = reshape(normalization_factor,1,length(normalization_factor))
-
-
-    pattern = sol(tfinal)
-
-    pattern = pattern ./ normalization_factor
-
-    labels --> reshape(labels,1,length(labels))
-    ticks --> :none
-    leg --> Symbol(:outer,:right)
-    linewidth --> 2
-
-    x,pattern
-
-end
-
-
-
-
-
-
-
-
-
-
