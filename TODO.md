@@ -1,0 +1,5 @@
+- Improve params interface. (Look at Catalyst docs for existing interface)
+- Incorporate benchmark code
+- Add interactive Makie plots
+- Verify spectral solutions
+- Try Catalyst's spatial simulations and adopt @transport_reaction macro.
