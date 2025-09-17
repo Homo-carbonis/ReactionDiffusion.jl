@@ -49,9 +49,6 @@ const nq = 100
 const q2 = 10 .^(range(-2,stop=2,length=nq))
 const n_denser = (range(0,stop=1,length=100))
 const n_gridpoints = 128
-const M = Array(Tridiagonal([1.0 for i in 1:n_gridpoints-1],[-2.0 for i in 1:n_gridpoints],[1.0 for i in 1:n_gridpoints-1]))
-M[1,2] = 2.0
-M[end,end-1] = 2.0
 
         
 function returnParam(ps,ics, i)
