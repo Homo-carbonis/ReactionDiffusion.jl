@@ -51,11 +51,11 @@ const n_denser = (range(0,stop=1,length=100))
 const n_gridpoints = 128
 
         
-function returnParam(ps,ics, i)
+function returnParam(type, ps,ics, i)
     n_params = length(ps)
     n_species = length(ics)
-    p = zeros(Float64,n_params)
-    u₀ = zeros(Float64,n_species)
+    p = zeros(type,n_params)
+    u₀ = zeros(type,n_species)
     ind = CartesianIndices(Tuple([length.(ics); length.(ps)]))[Int(i)]
     for j in 1:n_species
         u₀[j] = ics[j][ind[j]]
@@ -132,7 +132,7 @@ end
 function identifyTuring(sol, ds, jacobian)
 
     # Returns turingParameters that satisfy diffusion-driven instability for each steady state in sol, and diffusion constants in ds. 
-    #       - idx_ps refers to the parameter combinations (steady states [sol] are computed across parameter combinations, and do not depent on ds)
+    #       - idx_ps refers to the parameter combinations (steady states [sol] are computed across parameter combinations, and do not depend on ds)
     #       - idx_ds refers to the diffusion constant combinations
     #       - idx_turing refers to the  combinations
 
@@ -327,14 +327,31 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
 
     prob_fn = ODEFunction((du,u,p,t)->fₛₛ(du,vec(u),p), jac = (du,u,p,t) -> fjacₛₛ(du,vec(u),p), jac_prototype = similar(jacₛₛ,Float64))
 
-    prob = SteadyStateProblem(prob_fn,u₀,p)
-
+    function ss_condition(u,t,integrator)
+            du = similar(u)
+            fₛₛ(du,vec(u),integrator.p)
+            return norm(du) < 1e-6   # steady state tolerance
+    end
+    
+    if typeof(ensemblealg) == EnsembleThreads
+        p = zeros(Float64,length(ps))
+        u₀ = zeros(Float64,length(ics))
+        prob = SteadyStateProblem(prob_fn,u₀,p)
+        callback = nothing
+        alg = DynamicSS(alg; tspan=tspan)
+    else
+        p = zeros(Float32,length(ps))
+        u₀ = zeros(Float32,length(ics))
+        tspan = Float32.(tspan)
+        prob = ODEProblem(prob_fn,u₀,tspan, p)
+        callback = DiscreteCallback(ss_condition, int -> terminate!(int))
+    end
 
     for batch_number in 1:n_batches
         starting_index = (batch_number - 1)*batch_size
         final_index = min(batch_number*batch_size,n_total)
         n_batch = final_index - starting_index
-        append!(turing_params,returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg))
+        append!(turing_params,returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian, callback; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg))
         next!(progressMeter)
     end
     println(string(length(turing_params),"/",prod([length.(ps); length.(ics); length.(ds)])," parameters are pattern forming"))
@@ -342,19 +359,17 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
     return StructArray(turing_params)
 end
 
-function returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg)
+function returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian, callback; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg)
 
     # Construct function to screen through parameters
     function prob_func(prob,i,repeat)
-      tmp1, tmp2 = returnParam(ps,ics,(i+starting_index))
-      @. prob.u0 = tmp2
-      @. prob.p = tmp1
-      return prob
+      tmp1, tmp2 = returnParam(typeof(prob.u0[1]), ps,ics,(i+starting_index))
+      remake(prob; u0=tmp2, p=tmp1)
     end
     
     ensemble_prob = EnsembleProblem(prob,prob_func=prob_func)
 
-    sol = solve(ensemble_prob,maxiters=maxiters,DynamicSS(alg; tspan=tspan),ensemblealg,trajectories=n_batch,verbose=false,abstol=abstol, reltol=reltol, save_everystep = false)
+    sol = solve(ensemble_prob,maxiters=maxiters,alg,ensemblealg,callback=callback, trajectories=n_batch,verbose=false,abstol=abstol, reltol=reltol, save_everystep = false)
 
     # Determine whether the steady state undergoes a diffusion-driven instability
     return identifyTuring(sol, ds, jacobian)
@@ -388,7 +403,7 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
     p, d, ic, l, seed, noise = returnSingleParameter(model, param)
 
     # convert reaction network to ODESystem
@@ -400,6 +415,6 @@ function simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing
     f_ode(u,p,t) = f_oop(u,p,t)
 
     u0 = createIC(ic, seed, noise)
-    prob = discretisation(f_ode, u0, l, d, p)
-    solve(prob, alg; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    prob = discretisation(f_ode, u0, tspan, l, d, p; ss = (tspan==Inf))
+    solve(prob; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
 end

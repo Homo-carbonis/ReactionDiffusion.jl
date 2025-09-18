@@ -9,7 +9,7 @@ struct PseudoSpectralProblem
     iplan!
 end
 
-function PseudoSpectralProblem(f, u0, l, d, p, t_span=(0,Inf))
+function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
     n = size(u0)[1]
     u0 = permutedims(u0)
 
@@ -37,30 +37,28 @@ function PseudoSpectralProblem(f, u0, l, d, p, t_span=(0,Inf))
         plan! * du
     end
 
-    odeprob = SplitODEProblem(f_d!, f_n!, u0, t_span, p)
-    # PseudoSpectralProblem(SteadyStateProblem(odeprob), iplan!)
+    odeprob = SplitODEProblem(f_d!, f_n!, u0, tspan, p)
+    if ss
+        odeprob = SteadyStateProblem(odeprob)
+    end
     PseudoSpectralProblem(odeprob, iplan!)
 end
 
-
-
 function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp3(autodiff=false); kwargs...)
-    alg = something(alg, KenCarp3(autodiff=false))
     (;problem, iplan!) = problem
-
-    if problem.tspan[end] < Inf
-        sol = solve(problem, alg; kwargs...)
+    if problem isa SteadyStateProblem
+        sol = solve(problem, DynamicSS(alg); kwargs...).original
     else
-        sol = solve(SteadyStateProblem(problem), DynamicSS(alg); kwargs...).original
+        sol = solve(problem, alg; kwargs...)
     end
 
     map!(sol) do u
         iplan! * u
         permutedims(u)
     end
-    
     sol
 end
+
 
 "Transform each value of `sol` from `u` to `f(u)"
 function map!(f, sol::ODESolution)
@@ -75,3 +73,4 @@ function map!(f, sol::ODESolution)
 end
 
 end
+

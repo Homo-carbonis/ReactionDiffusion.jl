@@ -3,3 +3,6 @@
 - Add interactive Makie plots
 - Verify spectral solutions
 - Try Catalyst's spatial simulations and adopt @transport_reaction macro.
+- Use features of EnsembleProblem to search for parameters.
+- Continue port to GPU
+- Add Benchmark code.

@@ -1,5 +1,5 @@
 module Plot
-using Printf, Makie
+using LinearAlgebra, Printf, Makie
 export plot_solutions, error_grid
 
 function plot_solutions(sols, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)

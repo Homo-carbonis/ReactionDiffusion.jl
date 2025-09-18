@@ -9,7 +9,7 @@ struct FiniteDifferenceProblem
 end
 
 "Discretise the model using a central difference scheme"
-function FiniteDifferenceProblem(f, u0, l, d, p, t_span=(0,Inf))
+function FiniteDifferenceProblem(f, u0, t_span, l, d, p; ss=true)  # Temporary workaround with ss param
     n_gridpoints = size(u0)[1]
     n_params = length(p)
     n_species = length(d)
@@ -48,17 +48,18 @@ function FiniteDifferenceProblem(f, u0, l, d, p, t_span=(0,Inf))
 
     
     prob = ODEProblem(prob_fn,u0,t_span,q_)
+    if ss
+        prob = SteadyStateProblem(prob)
+    end
     FiniteDifferenceProblem(prob)
 end
 
 function DifferentialEquations.solve(problem::FiniteDifferenceProblem, alg=KenCarp4(); kwargs...)
-    alg = something(alg, KenCarp4())
     problem = problem.problem
-
-    if problem.tspan[end] < Inf
-        solve(problem, alg; kwargs...)
+    if problem isa SteadyStateProblem
+        solve(problem, DynamicSS(alg); kwargs...).original
     else
-        solve(SteadyStateProblem(problem), DynamicSS(alg); kwargs...).original
+        solve(problem, alg; kwargs...)
     end
 end
 
