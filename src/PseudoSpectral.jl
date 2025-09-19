@@ -6,7 +6,7 @@ using DifferentialEquations, FFTW
 
 struct PseudoSpectralProblem
     problem
-    iplan!
+    plan!
 end
 
 function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
@@ -14,7 +14,6 @@ function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
     u0 = permutedims(u0)
 
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0, FFTW.REDFT00,  2) # Orthonormal DCT-I
-    iplan! = plan!
 
     plan! * u0
 
@@ -28,7 +27,7 @@ function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
 
     function f_n!(du,u,p,t)
         du .= u
-        iplan! * du
+        plan! * du
 
         for i in 1:n
             du[:,i] = f(du[:,i],p,t)
@@ -41,11 +40,12 @@ function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
     if ss
         odeprob = SteadyStateProblem(odeprob)
     end
-    PseudoSpectralProblem(odeprob, iplan!)
+    PseudoSpectralProblem(odeprob, plan!)
 end
 
 function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp3(autodiff=false); kwargs...)
-    (;problem, iplan!) = problem
+    (;problem, plan!) = problem
+    alg = something(alg, KenCarp3(autodiff=false))
     if problem isa SteadyStateProblem
         sol = solve(problem, DynamicSS(alg); kwargs...).original
     else
@@ -53,7 +53,7 @@ function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp
     end
 
     map!(sol) do u
-        iplan! * u
+        plan! * u
         permutedims(u)
     end
     sol

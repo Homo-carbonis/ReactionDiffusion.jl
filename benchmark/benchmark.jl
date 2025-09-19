@@ -1,8 +1,7 @@
-using ReactionDiffusion, DifferentialEquations, Catalyst
+using ReactionDiffusion, DifferentialEquations, Catalyst, BenchmarkTools
 
 function benchmark(model,param, tspan; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8)
     p, d, ic, l, seed, noise = ReactionDiffusion.returnSingleParameter(model, param)
-
     # convert reaction network to ODESystem
     odesys = convert(ODESystem, model)
 
@@ -11,10 +10,9 @@ function benchmark(model,param, tspan; discretisation=PseudoSpectralProblem, alg
     f_oop = ModelingToolkit.eval(f_gen)
     f_ode(u,p,t) = f_oop(u,p,t)
 
-    u0 = ReactionDiffusion.createIC(ic, seed, noise)
+    u0 = randn(ReactionDiffusion.n_gridpoints,length(ic)).^2
     prob = discretisation(f_ode, u0, tspan, l, d, p; ss=false)
-    @benchmark $sol = $solve($prob, $alg; reltol=$reltol,abstol=$abstol)
-    sol
+    @benchmark $solve($prob, $alg; reltol=$reltol,abstol=$abstol)
 end
 
 model = @reaction_network begin
@@ -34,15 +32,16 @@ params.reaction["γ"] = [1.0]
 params.diffusion["U"] = [1.0] 
 params.diffusion["V"] = [50.0]
 
+seed = 324
 
 turing_params = returnTuringParams(model, params,batch_size=2);
-a = get_param(model, turing_params,"a","reaction")
-b = get_param(model, turing_params,"b","reaction")
 
-param1 = get_params(model, turing_params[4])
 
-sol1 = benchmark(model,param1, (0,10); discretisation=PseudoSpectralProblem, alg=KenCarp3(autodiff=false))
-sol2 = benchmark(model,param1, (0,100); discretisation=FiniteDifferenceProblem, alg=KenCarp4())
+param1 = get_params(model, turing_params[1])
+param1.random_seed = seed
 
-sol1 = sol= simulate(model,param1; tspan=(0,10), discretisation=FiniteDifferenceProblem)
-sol2 = sol= simulate(model,param1; tspan=(0,10), discretisation=PseudoSpectralProblem)
+benchmark(model,param1, (0,20); discretisation=PseudoSpectralProblem, alg=KenCarp3(autodiff=false), abstol=1e-4, reltol=1e-4)
+benchmark(model,param1, (0,20); discretisation=FiniteDifferenceProblem, alg=KenCarp4(), abstol=1e-4, reltol=1e-4)
+
+sol1 = simulate(model,param1; tspan=(0,10), discretisation=FiniteDifferenceProblem)
+sol2 = simulate(model,param1; tspan=(0,10), discretisation=PseudoSpectralProblem)

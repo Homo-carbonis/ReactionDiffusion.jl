@@ -6,3 +6,4 @@
 - Use features of EnsembleProblem to search for parameters.
 - Continue port to GPU
 - Add Benchmark code.
+- Look into using Symbolics to simplify f_n.

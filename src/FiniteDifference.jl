@@ -56,6 +56,7 @@ end
 
 function DifferentialEquations.solve(problem::FiniteDifferenceProblem, alg=KenCarp4(); kwargs...)
     problem = problem.problem
+    alg = something(alg, KenCarp4())
     if problem isa SteadyStateProblem
         solve(problem, DynamicSS(alg); kwargs...).original
     else

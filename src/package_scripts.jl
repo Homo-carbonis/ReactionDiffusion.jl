@@ -333,7 +333,7 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
             return norm(du) < 1e-6   # steady state tolerance
     end
     
-    if typeof(ensemblealg) == EnsembleThreads
+    if ensemblealg isa EnsembleThreads
         p = zeros(Float64,length(ps))
         u₀ = zeros(Float64,length(ics))
         prob = SteadyStateProblem(prob_fn,u₀,p)
@@ -403,8 +403,8 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
-    p, d, ic, l, seed, noise = returnSingleParameter(model, param)
+function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, maxiters = 1e3)
+    p, d, ic, l, seed, noise = returnSingleParameter(model, param)= true
 
     # convert reaction network to ODESystem
     odesys = convert(ODESystem, model)
@@ -416,5 +416,5 @@ function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, 
 
     u0 = createIC(ic, seed, noise)
     prob = discretisation(f_ode, u0, tspan, l, d, p; ss = (tspan==Inf))
-    solve(prob; dt=dt,reltol=reltol,abstol=abstol, maxiters=maxiters,save_everystep=save_everystep,verbose=false)
+    solve(prob, alg; reltol=reltol,abstol=abstol, maxiters=maxiters, verbose=false)
 end
