@@ -404,15 +404,14 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
  
 """
 function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, maxiters = 1e3)
-    p, d, ic, l, seed, noise = returnSingleParameter(model, param)= true
+    p, d, ic, l, seed, noise = returnSingleParameter(model, param)
 
     # convert reaction network to ODESystem
     odesys = convert(ODESystem, model)
 
     # build ODE function
     f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_oop = ModelingToolkit.eval(f_gen)
-    f_ode(u,p,t) = f_oop(u,p,t)
+    f_ode = ModelingToolkit.eval(f_gen)
 
     u0 = createIC(ic, seed, noise)
     prob = discretisation(f_ode, u0, tspan, l, d, p; ss = (tspan==Inf))

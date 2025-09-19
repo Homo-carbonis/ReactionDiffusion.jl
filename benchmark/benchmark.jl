@@ -40,8 +40,8 @@ turing_params = returnTuringParams(model, params,batch_size=2);
 param1 = get_params(model, turing_params[1])
 param1.random_seed = seed
 
-benchmark(model,param1, (0,20); discretisation=PseudoSpectralProblem, alg=KenCarp3(autodiff=false), abstol=1e-4, reltol=1e-4)
+benchmark(model,param1, (0,20); discretisation=PseudoSpectralProblem, alg=KenCarp3() , abstol=1e-4, reltol=1e-4)
 benchmark(model,param1, (0,20); discretisation=FiniteDifferenceProblem, alg=KenCarp4(), abstol=1e-4, reltol=1e-4)
 
-sol1 = simulate(model,param1; tspan=(0,10), discretisation=FiniteDifferenceProblem)
-sol2 = simulate(model,param1; tspan=(0,10), discretisation=PseudoSpectralProblem)
+sol1 = simulate(model,param1; tspan=(0,10), discretisation=PseudoSpectralProblem)
+sol2 = simulate(model,param1; tspan=(0,10), discretisation=FiniteDifferenceProblem)
