@@ -11,7 +11,6 @@ end
 
 function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
     n = size(u0)[1]
-    m = size(u0)[2]
     u0 = permutedims(u0)
 
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0, FFTW.REDFT00,  2) # Orthonormal DCT-I
@@ -26,27 +25,13 @@ function PseudoSpectralProblem(f, u0, tspan, l, d, p; ss=true)
         du .= λ .* u
     end
 
-    function f_reflective(u,p)
-        mapslices(u,dims=1) do x
-            f(x,p,0.0)
-        end
-    end
-
-    @variables uᵣ[1:m,1:n]
-    @parameters pᵣ[1:length(p)]
-
-    duᵣ = Symbolics.simplify.(f_reflective(collect(uᵣ),collect(pᵣ)))
-
-    fᵣ = eval(Symbolics.build_function(duᵣ,vec(uᵣ),pᵣ;
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-    jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
-    fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),pᵣ,
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-
     function f_n!(du,u,p,t)
-        u_ .= u
-        plan! * u_
-        fᵣ(du,vec(u_))
+        du .= u
+        plan! * du
+
+        for i in 1:n
+            du[:,i] = f(du[:,i],p,t)
+        end
         
         plan! * du
     end

@@ -24,12 +24,13 @@ model = @reaction_network begin
 end 
 
 
-p=[0.2,2.0,1.0]
+p=[1.0,0.2,2.0]
 d=[1.0,50]
 l = 1
 n =128
 # convert reaction network to ODESystem
 odesys = convert(ODESystem, model)
+eqn = equations(odesys)
 
 # build ODE function
 f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
@@ -55,20 +56,20 @@ duᵣ = Symbolics.simplify.(f_reflective(collect(uᵣ),collect(pᵣ)))
 
 
 
-fᵣ = eval(Symbolics.build_function(duᵣ,vec(uᵣ),pᵣ;
-            parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
-fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),pᵣ,
-            parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
+fᵣ = eval(Symbolics.build_function(duᵣ,uᵣ,pᵣ;
+            parallel=Symbolics.SerialForm())[2]) #index [2] denotes in-place, mutating function
+# jacᵣ = Symbolics.sparsejacobian(vec(duᵣ),vec(uᵣ))
+# fjacᵣ = eval(Symbolics.build_function(jacᵣ,vec(uᵣ),pᵣ,
+#             parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
 
             
-prob_fn = ODEFunction((du,u,p,t)->fᵣ(du,vec(u),p), jac = (du,u,p,t) -> fjacᵣ(du,vec(u),p), jac_prototype = similar(jacᵣ,Float64))
+# prob_fn = ODEFunction((du,u,p,t)->fᵣ(du,vec(u),p), jac = (du,u,p,t) -> fjacᵣ(du,vec(u),p), jac_prototype = similar(jacᵣ,Float64))
 
 
 
 
 
-u0 = randn(n,2).^2
+u0 = 0.0000001*randn(n,2).^2 .+ ones(n,2)
 
 tspan = (0,10)
 
@@ -87,17 +88,21 @@ function f_d!(du,u,p,t)
     du .= λ .* u
 end
 
-uu=similar(u0)
 function f_n!(du,u,p,t)
-    uu .= u
-    plan! * uu
-    fᵣ(du,vec(uu),p)
+    du .= u
+    plan! * du
+
+    for i in 1:n
+        du[:,i] = f(du[:,i],p,t)
+    end
+    
     plan! * du
 end
 
 problem = SplitODEProblem(f_d!, f_n!, u0, tspan, p)
 
-sol = solve(problem, KenCarp3())
+##
+sol = solve(problem, KenCarp3(), abstol=1e-8, reltol=1e-6)
 #@btime solve(problem, KenCarp3())
 
 
@@ -106,5 +111,4 @@ map!(sol) do u
     permutedims(u)
 end
 
-sol
-plot_solutions([sol],["u","v"])
+plot_solutions([sol],["u","v"], steps=2000)
