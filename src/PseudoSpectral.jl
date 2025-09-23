@@ -9,25 +9,45 @@ struct PseudoSpectralProblem
     plan!
 end
 
+function transform(f!,plan!)
+    function (du,u,p,t)
+        du .= u
+        plan! * du
+        for i in 1:n
+            f!(du[:,i],du[:,i],p,t) # 
+        end
+        plan! * du
+    end
+end
+
+
 function PseudoSpectralProblem(lrs, u0, tspan, l, d, p; ss=true)
     sps=species(lrs)
     params = parameters(lrs)
+    
     n_verts = Catalyst.num_verts(lrs)
     n_species = length(sps)
     n_params = length(params)
+
+    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0, FFTW.REDFT00,  2) # Orthonormal DCT-I
+    plan! * u0 # transform ICs
+
 
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
 
     # Build optimized Jacobian and ODE functions using Symbolics.jl
     @variables u[1:n_species, 1:n_verts]
 
-    du = mapslices(collect(u),dims=1) do u
+    du_r = mapslices(collect(u),dims=1) do u
             s = Dict(zip(sps, u))
             [substitute(expr, s) for expr in rhs]
     end
-    f_n! = eval(Symbolics.build_function(du,u,params)[2]) # Index [2] denotes in-place function.
-    jac = Symbolics.sparsejacobian(vec(du),vec(u))
-    fjac! = eval(Symbolics.build_function(jac,vec(u),params)[2]) 
+    f_r! = eval(Symbolics.build_function(du_n,u,params)[2]) # Index [2] denotes in-place function.
+    f_r! = transform(f_r!, plan!)
+
+    jac_r = Symbolics.sparsejacobian(vec(du_n),vec(u))
+    fjac_r! = eval(Symbolics.build_function(jac_r,vec(u),params)[2])
+    fjac_r! = transform(fjac_r!, plan!)
 
     D = [r.rate for r in Catalyst.spatial_reactions(lrs)]
 
@@ -36,48 +56,9 @@ function PseudoSpectralProblem(lrs, u0, tspan, l, d, p; ss=true)
     λ = [-d * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for d in d, k in k]
 
     du_d = λ .* u
-
-    f_d! = eval(Symbolics.build_function(du,u,params)[2])
-end
-
-function PseudoSpectralProblem(f, u0, tspan, l, d, p; jac=nothing, ss=true)
-    n = size(u0)[1]
-    u0 = permutedims(u0)
-
-    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0, FFTW.REDFT00,  2) # Orthonormal DCT-I
-
-    plan! * u0
-
-    k = 0:n-1
-    h = l / (n-1)
-    λ = [-d * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for d in d, k in k]
-
-    function f_d!(du,u,p,t)
-        du .= λ .* u
-    end
-
-    function f_n!(du,u,p,t)
-        du .= u
-        plan! * du
-
-        for i in 1:n
-            f!(du[:,i],p,t)
-        end
-        
-        plan! * du
-    end
-
-    function jac_n!(J,u,p,t)
-        J .= u
-        plan! * du
-
-        for i in 1:n
-            f!(du[:,i],p,t)
-        end
-        
-        plan! * du
-
-
+    f_d! = eval(Symbolics.build_function(du_d,u)[2])
+    jac_d = Symbolics.sparsejacobian(vec(du_d),vec(u))
+    fjac_d! = eval(Symbolics.build_function(jac_d,vec(u))[2])
     odeprob = SplitODEProblem(f_d!, f_n!, u0, tspan, p)
     if ss
         odeprob = SteadyStateProblem(odeprob)
