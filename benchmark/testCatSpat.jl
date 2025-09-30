@@ -5,19 +5,6 @@ using Catalyst, DifferentialEquations, FFTW
 include("../src/Plot.jl")
 using .Plot, WGLMakie
 
-
-function transform(f!,plan!, iplan! = plan!)
-   u = Matrix{Float64}(undef, size(plan!))
-    function (du,û,p,t)
-        u .= û
-        plan! * u
-        f!(du,u,p,t)
-        iplan! * du
-        nothing
-    end
-end
-
-
 "Return diffusion rates for `lrs` in the same order as `species(lrs)`"
 function diffusion_rates(lrs::LatticeReactionSystem)
     sps = species(lrs)
@@ -31,7 +18,6 @@ function diffusion_rates(lrs::LatticeReactionSystem)
     end
     D
 end
-
 
 function make_params(network; params...)
     symbols = nameof.(parameters(network))
@@ -51,6 +37,67 @@ function map!(f, sol::ODESolution)
     end
 end
 
+# Extend * for operator × matrix
+function Base.:*(A::SciMLOperators.AbstractSciMLOperator, X::AbstractMatrix)
+    Y = similar(X, eltype(A), size(A,1), size(X,2))
+    for j in 1:size(X,2)
+        mul!(view(Y, :, j), A, view(X, :, j))
+    end
+    return Y
+end
+
+function build_dct_op(lrs)
+    n = Catalyst.num_verts(lrs)
+    m = Catalyst.num_species(lrs)
+    v = Vector{Float64}(undef,n)
+    u = Matrix{Float64}(undef, n, m)
+    params = parameters(lrs) 
+    p = similar(params, Float64) # We have to pass p as a prototype even though it's not used because isconstant doesn't seem to do anything.
+    plan = 1/sqrt(2*(n-1)) * FFTW.plan_r2r(v, FFTW.REDFT00, 1; flags=FFTW.MEASURE)
+    w = plan * v
+    op(v,u,p,t) = plan * v
+    op(w,v,u,p,t) = mul!(w,plan,v)
+    FunctionOperator(op, v, w; u = u, p=p, op_inverse=op, islinear=true, isconstant=true)
+end
+
+function build_reaction_op(lrs)
+    n = Catalyst.num_verts(lrs)
+    m = Catalyst.num_species(lrs)
+    sps = species(lrs)
+    params = parameters(lrs)
+    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
+    (f, f!) = eval.(Symbolics.build_function(rhs,sps,params))
+    op(v,u,p,t) = f(v,p)
+    op(w,v,u,p,t) = f!(w,v,p)
+    v = w = similar(sps, Float64)
+    u = Matrix{Float64}(undef, n, m)
+    p = similar(params, Float64)
+
+    FunctionOperator(op, v, w; u=u, p=p)
+end
+
+function build_diffusion_op(lrs)
+    sps = species(lrs)
+    params = parameters(lrs)
+    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
+    n_verts = Catalyst.num_verts(lrs)
+    n_sps = Catalyst.num_species(lrs)
+
+    k = 0:n_verts-1
+    L = 2pi
+    h = L / (n_verts-1)
+
+    # Correction from -D(kh)^2 for the discrete transform.
+    λ = [-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in diffusion_params]
+    (f, f!) = eval.(Symbolics.build_function(λ,params))
+    update(diag,u,p,t) = f(p)
+    update!(diag,u,p,t) = f!(diag,p)
+    prototype = similar(λ, Float64)
+    DiagonalOperator(prototype; update_func! = update!)
+end
+
+
+
 
 model = @reaction_network begin
     γ*a + γ*U^2*V,  ∅ --> U
@@ -64,22 +111,9 @@ u_diffusion = @transport_reaction Dᵤ U
 
 n=64
 lattice = CartesianGrid(n)
-
-
-
 lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
-##
+
 tspan = (0.0, 1.0)
-
-sps=species(lrs)
-
-params = parameters(lrs)
-reaction_params = vertex_parameters(lrs)
-diffusion_params = diffusion_rates(lrs)
-
-n_verts = Catalyst.num_verts(lrs)
-n_species = length(sps)
-
 ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
 
 
@@ -87,62 +121,19 @@ u0 = 0.0001 * randn(n_verts, n_species).^2
 u0_ = copy(u0)
 U0=copy(u0[:,1]); V0=copy(u0[:,2])
 
-L = 10
-
-
-plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0_, FFTW.REDFT00, 1; flags=FFTW.MEASURE) # Orthonormal DCT-I
-jac_plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(randn(n_verts*n_species,n_verts*n_species), FFTW.REDFT00, 1) # TODO Use real data to plan.
-plan! * u0 # transform initial conditions
-
-
 ##
 
-rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
+dct = build_dct_op(lrs)
+R = build_reaction_op(lrs)
+d = build_diffusion_op(lrs)
 
-# Build optimized Jacobian and ODE functions using Symbolics.jl
-@variables u[1:n_verts, 1:n_species]
-
-du_r = mapslices(collect(u),dims=2) do u
-        s = Dict(zip(sps, u))
-        [substitute(expr, s) for expr in rhs]
-end
-
-jac_r = Symbolics.sparsejacobian(vec(du_r),vec(u))
-f_r! = transform(eval(Symbolics.build_function(du_r,u,params,())[2]), plan!) # Index [2] denotes in-place function.
-fjac_r! = transform(eval(Symbolics.build_function(jac_r,u,params,())[2]), plan!, jac_plan!)
-jac_r_prototype = similar(jac_r, Float64)
-fjac_r!(jac_r_protype, u0,ps,0.0)
+D = dct * d * dct
+cache_operator(D,u0)
+odeprob1 = SplitODEProblem(D, R, u0, tspan, ps)
+# odeprob2 = ODEProblem(lrs,[:U => U0, :V => V0],tspan,[:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/L^2, :Dᵥ => 50.0/L^2]; jac=true, sparse=true)
 
 
-f_r! = ODEFunction(f_r!; jac=fjac_r!, jac_prototype=jac_r_prototype)
-
-
-k = 0:n_verts-1
-h = L / (n_verts-1)
-
-# Correction from -D(kh)^2 for the discrete transform.
-λ = [-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in diffusion_params]
-
-du_d = collect(λ .* u)
-jac_d = Symbolics.sparsejacobian(vec(du_d), vec(u))
-
-f_d! = eval(Symbolics.build_function(du_d,u,params,())[2])
-
-
-fjac_d! = eval(Symbolics.build_function(jac_d,u,params,())[2])
-jac_d_prototype = similar(jac_d, Float64)
-fjac_d!(jac_d_prototype, u0, ps, 0.0)
-
-
-f_d! = ODEFunction(f_d!; jac=fjac_d!, jac_prototype=jac_d_prototype)
-
-
-ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
-odeprob1 = SplitODEProblem(f_r!, f_d!, u0, tspan, ps)
-odeprob2 = ODEProblem(lrs,[:U => U0, :V => V0],tspan,[:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/L^2, :Dᵥ => 50.0/L^2]; jac=true, sparse=true)
-
-
-@benchmark sol1 = solve(odeprob1, KenCarp3())
+sol1 = solve(odeprob1, KenCarp3())
 map!(sol1) do u
     plan! * u
 end
