@@ -6,7 +6,7 @@ include("../src/Plot.jl")
 using .Plot, WGLMakie
 
 "Return diffusion rates for `lrs` in the same order as `species(lrs)`"
-function diffusion_rates(lrs::LatticeReactionSystem)
+function diffusion_parameters(lrs::LatticeReactionSystem)
     sps = species(lrs)
     D::Vector{Num} = zeros(length(sps))
     srs = Catalyst.spatial_reactions(lrs)
@@ -46,58 +46,68 @@ function Base.:*(A::SciMLOperators.AbstractSciMLOperator, X::AbstractMatrix)
     return Y
 end
 
-function build_dct_op(lrs)
+function DCT(lrs)
     n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    v = Vector{Float64}(undef,n)
-    u = Matrix{Float64}(undef, n, m)
-    params = parameters(lrs) 
-    p = similar(params, Float64) # We have to pass p as a prototype even though it's not used because isconstant doesn't seem to do anything.
-    plan = 1/sqrt(2*(n-1)) * FFTW.plan_r2r(v, FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-    w = plan * v
+    u = Vector{Float64}(undef,n)
+    plan = 1/sqrt(2*(n-1)) * FFTW.plan_r2r(u, FFTW.REDFT00; flags=FFTW.MEASURE)
     op(v,u,p,t) = plan * v
     op(w,v,u,p,t) = mul!(w,plan,v)
-    FunctionOperator(op, v, w; u = u, p=p, op_inverse=op, islinear=true, isconstant=true)
+    FunctionOperator(op, u, u; op_inverse=op, islinear=true, isconstant=true)
 end
 
-function build_reaction_op(lrs)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
+function R(lrs)
     sps = species(lrs)
-    params = parameters(lrs)
+    ps = parameters(lrs)
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-    (f, f!) = eval.(Symbolics.build_function(rhs,sps,params))
+    (f, f!) = Symbolics.build_function(rhs,sps,ps; expr=Val{false})
     op(v,u,p,t) = f(v,p)
     op(w,v,u,p,t) = f!(w,v,p)
-    v = w = similar(sps, Float64)
-    u = Matrix{Float64}(undef, n, m)
-    p = similar(params, Float64)
-
-    FunctionOperator(op, v, w; u=u, p=p)
+    u = similar(sps, Float64)
+    p = similar(ps, Float64)
+    FunctionOperator(op, u, u; p=p)
 end
 
-function build_diffusion_op(lrs)
-    sps = species(lrs)
-    params = parameters(lrs)
-    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-    n_verts = Catalyst.num_verts(lrs)
-    n_sps = Catalyst.num_species(lrs)
-
-    k = 0:n_verts-1
-    L = 2pi
-    h = L / (n_verts-1)
-
+function Λ(lrs)
+    n = Catalyst.num_verts(lrs)
+    k = 0:n-1
+    h = L / (n-1)
     # Correction from -D(kh)^2 for the discrete transform.
-    λ = [-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in diffusion_params]
-    (f, f!) = eval.(Symbolics.build_function(λ,params))
-    update(diag,u,p,t) = f(p)
-    update!(diag,u,p,t) = f!(diag,p)
-    prototype = similar(λ, Float64)
-    DiagonalOperator(prototype; update_func! = update!)
+    λ = [-(4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k]
+    DiagonalOperator(λ)
+end
+function D(lrs)
+    ps = parameters(lrs)
+    dps = diffusion_parameters(lrs)
+    update! = Symbolics.build_function(dps,(), ps,(); expr=Val{false})[2]
+    diag = similar(dps, Float64)
+    DiagonalOperator(diag, update_func! = update!)
 end
 
+function broadcast_operator(F, V; reverse=Val{false})
+    if reverse
+        n = size(F,1); m = size(V,2)
+    else
+        n = size(V,1); m = size(F,2)
+    end
+    function op!(W,V,u,p,t)
+        for i in axes(W,2)
+            if reverse
+                v = view(v, i, :); w = view(w, i, :)
+            else
+                v = view(v, :, i); w = view(w, :, i)
+            end
+            mul!(w,F,v)
+        end
+    end
+    function op(V,u,p,t)
+        W = similar(V, n, m)
+        op!(W,V,u,p,t)
+        W
+    end
 
-
+    W = similar(V,n,m)
+    FunctionOperator(op, W, V; p = F.p, u = F.u, islinear=islinear(F), isconstant=isconstant(F))
+end
 
 model = @reaction_network begin
     γ*a + γ*U^2*V,  ∅ --> U
@@ -117,17 +127,14 @@ tspan = (0.0, 1.0)
 ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
 
 
-u0 = 0.0001 * randn(n_verts, n_species).^2
+u0 = 0.0001 * randn(n, 2).^2
 u0_ = copy(u0)
 U0=copy(u0[:,1]); V0=copy(u0[:,2])
 
 ##
+R = reaction_operator(lrs)
+D = diffusion_operator(lrs)
 
-dct = build_dct_op(lrs)
-R = build_reaction_op(lrs)
-d = build_diffusion_op(lrs)
-
-D = dct * d * dct
 cache_operator(D,u0)
 odeprob1 = SplitODEProblem(D, R, u0, tspan, ps)
 # odeprob2 = ODEProblem(lrs,[:U => U0, :V => V0],tspan,[:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/L^2, :Dᵥ => 50.0/L^2]; jac=true, sparse=true)
