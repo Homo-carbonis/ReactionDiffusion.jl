@@ -79,6 +79,7 @@ end
 function build_diffusion_op(lrs)
     sps = species(lrs)
     params = parameters(lrs)
+    diffusion_params = diffusion_rates(lrs)
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
     n_verts = Catalyst.num_verts(lrs)
     n_sps = Catalyst.num_species(lrs)
@@ -117,7 +118,7 @@ tspan = (0.0, 1.0)
 ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
 
 
-u0 = 0.0001 * randn(n_verts, n_species).^2
+u0 = 0.0001 * randn(n, 2).^2
 u0_ = copy(u0)
 U0=copy(u0[:,1]); V0=copy(u0[:,2])
 
@@ -129,11 +130,11 @@ d = build_diffusion_op(lrs)
 
 D = dct * d * dct
 cache_operator(D,u0)
-odeprob1 = SplitODEProblem(D, R, u0, tspan, ps)
+odeprob1 = SplitODEProblem(D, R, u0, tspan, ps, dt=0.001)
 # odeprob2 = ODEProblem(lrs,[:U => U0, :V => V0],tspan,[:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/L^2, :Dᵥ => 50.0/L^2]; jac=true, sparse=true)
 
 
-sol1 = solve(odeprob1, KenCarp3())
+sol1 = solve(odeprob1, ETDRK4())
 map!(sol1) do u
     plan! * u
 end
