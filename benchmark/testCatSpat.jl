@@ -19,94 +19,47 @@ function diffusion_parameters(lrs::LatticeReactionSystem)
     D
 end
 
+"Build a vector of parameters in the right order from the given keyword values"
 function make_params(network; params...)
     symbols = nameof.(parameters(network))
     [params[k] for k in symbols]
 end
 
 
-"Transform each value of `sol` from `u` to `f(u)"
-function map!(f, sol::ODESolution)
-    for i in eachindex(sol.u)
-        sol.u[i] = f(sol.u[i])
-    end
-    for i in eachindex(sol.k)
-        for j in eachindex(sol.k[i])
-            sol.k[i][j] = f(sol.k[i][j])
-        end
-    end
-end
-
-# Extend * for operator × matrix
-function Base.:*(A::SciMLOperators.AbstractSciMLOperator, X::AbstractMatrix)
-    Y = similar(X, eltype(A), size(A,1), size(X,2))
-    for j in 1:size(X,2)
-        mul!(view(Y, :, j), A, view(X, :, j))
-    end
-    return Y
-end
-
-function DCT(lrs)
-    n = Catalyst.num_verts(lrs)
-    u = Vector{Float64}(undef,n)
-    plan = 1/sqrt(2*(n-1)) * FFTW.plan_r2r(u, FFTW.REDFT00; flags=FFTW.MEASURE)
-    op(v,u,p,t) = plan * v
-    op(w,v,u,p,t) = mul!(w,plan,v)
-    FunctionOperator(op, u, u; op_inverse=op, islinear=true, isconstant=true)
-end
-
-function R(lrs)
+function build_r!(lrs)
     sps = species(lrs)
     ps = parameters(lrs)
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-    (f, f!) = Symbolics.build_function(rhs,sps,ps; expr=Val{false})
-    op(v,u,p,t) = f(v,p)
-    op(w,v,u,p,t) = f!(w,v,p)
-    u = similar(sps, Float64)
-    p = similar(ps, Float64)
-    FunctionOperator(op, u, u; p=p)
+    @variables u[1:n_species, 1:n_verts]
+
+    du = mapslices(u,dims=2) do u
+            s = Dict(zip(sps, u))
+            [substitute(expr, s) for expr in rhs]
+    end
+    (f, f!) = Symbolics.build_function(du,sps,ps; expr=Val{false})
+    (du,u,p,t) -> f!(du,u,p)
 end
 
-function Λ(lrs)
+function build_d!(lrs, L=2pi)
     n = Catalyst.num_verts(lrs)
+    m = Catalyst.num_species(lrs)
+    ps = parameters(lrs)
+    dps = diffusion_parameters(lrs)
     k = 0:n-1
     h = L / (n-1)
     # Correction from -D(kh)^2 for the discrete transform.
-    λ = [-(4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k]
-    DiagonalOperator(λ)
-end
-function D(lrs)
-    ps = parameters(lrs)
-    dps = diffusion_parameters(lrs)
-    update! = Symbolics.build_function(dps,(), ps,(); expr=Val{false})[2]
-    diag = similar(dps, Float64)
-    DiagonalOperator(diag, update_func! = update!)
-end
-
-function broadcast_operator(F, V; reverse=Val{false})
-    if reverse
-        n = size(F,1); m = size(V,2)
-    else
-        n = size(V,1); m = size(F,2)
+    λ = [-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps]
+    @variables u[1:n_species, 1:n_verts]
+    (f,f!) = Symbolics.build_function(λ.*u, u, ps; expression=Val{false})
+    u0 = Matrix{Float64}(undef,n,m)
+    r = 1/sqrt(2*(n-1))
+    plan = r * FFTW.plan_r2r(u0, FFTW.REDFT00; flags=FFTW.MEASURE)
+    plan! = r * FFTW.plan_r2r!(u0, FFTW.REDFT00; flags=FFTW.MEASURE)
+    function(du,u,p,t)
+        û = plan * u
+        f!(du,û,p,t)
+        plan! * du
     end
-    function op!(W,V,u,p,t)
-        for i in axes(W,2)
-            if reverse
-                v = view(v, i, :); w = view(w, i, :)
-            else
-                v = view(v, :, i); w = view(w, :, i)
-            end
-            mul!(w,F,v)
-        end
-    end
-    function op(V,u,p,t)
-        W = similar(V, n, m)
-        op!(W,V,u,p,t)
-        W
-    end
-
-    W = similar(V,n,m)
-    FunctionOperator(op, W, V; p = F.p, u = F.u, islinear=islinear(F), isconstant=isconstant(F))
 end
 
 model = @reaction_network begin
@@ -130,23 +83,12 @@ ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
 u0 = 0.0001 * randn(n, 2).^2
 u0_ = copy(u0)
 U0=copy(u0[:,1]); V0=copy(u0[:,2])
+odeprob1 = ODEProblem(lrs, U0, tspan, ps; jac=true, sparse=true)
+sol1 = solve(odeprob1)
 
-##
-R = reaction_operator(lrs)
-D = diffusion_operator(lrs)
-
-cache_operator(D,u0)
-odeprob1 = SplitODEProblem(D, R, u0, tspan, ps)
-# odeprob2 = ODEProblem(lrs,[:U => U0, :V => V0],tspan,[:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/L^2, :Dᵥ => 50.0/L^2]; jac=true, sparse=true)
-
-
-sol1 = solve(odeprob1, KenCarp3())
-map!(sol1) do u
-    plan! * u
-end
-
-sol2 = solve(odeprob2)
+odeprob = SplitODEProblem(build_d!(lrs), build_r!(lrs), u0,tspan,ps; jac=true, sparse=true)
+sol = solve(odeprob)
 
 u2 = lat_getu(sol2, :U, lrs)
 t = sol2.t
-plot_solutions([sol1], ["u", "v"]; autolimits=true)
+plot_solutions([sol], ["u", "v"]; autolimits=true)
