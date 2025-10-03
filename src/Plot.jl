@@ -3,9 +3,8 @@ using LinearAlgebra, Printf, Makie
 export plot_solutions, error_grid
 
 function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)
-    x_steps = size(u[1], 1)
+    x_steps = size(u, 1)
     x = range(0,l,length=x_steps)
-    u = cat(u...;dims=3)
 	r = normalise ? norm.(eachslice(u, dims=(2,3))) : ones(size(u)[2:3])
 	fig=Figure()
 	ax = Axis(fig[1,1])
