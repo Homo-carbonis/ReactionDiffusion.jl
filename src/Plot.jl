@@ -2,14 +2,10 @@ module Plot
 using LinearAlgebra, Printf, Makie
 export plot_solutions, error_grid
 
-function plot_solutions(sols, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)
-    x_steps = size(sols[1](0))[1]
+function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)
+    x_steps = size(u[1], 1)
     x = range(0,l,length=x_steps)
-    t_end = minimum(sol.t[end] for sol in sols)
-    t = range(0,t_end, length=steps)
-    us = (cat(sol.(t)..., dims=3) for sol in sols)
-    u = hcat(us...)
-    @show size(u)
+    u = cat(u...;dims=3)
 	r = normalise ? norm.(eachslice(u, dims=(2,3))) : ones(size(u)[2:3])
 	fig=Figure()
 	ax = Axis(fig[1,1])
