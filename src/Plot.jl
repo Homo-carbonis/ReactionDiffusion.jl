@@ -1,5 +1,5 @@
 module Plot
-using LinearAlgebra, Printf, Makie
+using LinearAlgebra, Interpolations, Printf, Makie
 export plot_solutions, error_grid
 
 function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)
@@ -23,13 +23,18 @@ function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimit
     display(fig)
 end
 
-function error_grid(problem, solve, dxspan, dtspan; params=Dict())
-	err = Matrix{Float64}(undef, length(dtspan), length(dxspan))
-	for (j,dx) in enumerate(dxspan)
-		x,t,u_ref = solve_auto(problem, abstol=1e-9, reltol=1e-6, dx=dx, dt=dt)
-		for (i,dt) in enumerate(dtspan)
-			_,_,u = solve(problem; dx=dx, dt=dt, params...)
-			err[i,j] = maximum_error(u[end],u_ref[end])
+function error_grid(fsolve, ref, fu0, dxs, dts)
+	x_ref = range(0,1; length=size(ref,1))
+	i_ref = [linear_interpolation(x_ref, u) for u in eachcol(ref)]
+	err = Matrix{Float64}(undef, length(dts), length(dxs))
+	for (j,dx) in enumerate(dxs)
+		u0 = fu0(dx)
+		x = range(0,1; length=size(u0,1))
+		u_ref = stack(r.(x) for r in i_ref) 
+		for (i,dt) in enumerate(dts)
+			@printf("dx = %.2f, dt = %.2f\n", dx,dt)
+			u = fsolve(u0,dx,dt)
+			err[i,j] = maximum_error(u,u_ref)
 		end
 	end
 	err
