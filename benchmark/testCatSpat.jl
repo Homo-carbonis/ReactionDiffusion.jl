@@ -7,7 +7,20 @@ using .Plot, WGLMakie
 
 
 
-pseudospectral_problem(lrs, u0, tspan, p) = SplitODEProblem(build_d!(lrs), build_r!(lrs), u0,tspan, p)
+function pseudospectral_problem(lrs, u0, tspan, p, L, dt)
+    u0 = copy(u0)
+    n = size(u0,1)
+    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
+    plan! * u0
+    U = similar(u0)
+    ps = (p...,U)
+    D = build_d!(lrs,L)
+    R = build_r!(lrs,plan!)
+    update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
+    update_coefficients!(R,u0,ps,0.0)
+    (SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt), plan!)
+end
+
 
 function build_r!(lrs, plan!)
     n = Catalyst.num_verts(lrs)
@@ -35,7 +48,6 @@ function build_r!(lrs, plan!)
         plan! * DU
         nothing
     end
-    
     ODEFunction(f̂!; jac=fjac!)
 end
 
@@ -52,15 +64,6 @@ function build_d!(lrs, L=2pi)
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ,p[1:end-1])
     DiagonalOperator(λ0; update_func! = update!)
-end
-
-
-function plan_dct1(u0)
-    u = copy(u0)
-    r = 1/sqrt(2*(n-1)) # normalisation factor
-    plan = r * FFTW.plan_r2r(u, FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-    plan! = r * FFTW.plan_r2r!(u, FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-    (plan,plan!)
 end
 
 
@@ -110,50 +113,87 @@ end
 v_diffusion = @transport_reaction Dᵥ V
 u_diffusion = @transport_reaction Dᵤ U
 
-n=64
+n=256
 lattice = CartesianGrid(n)
 lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
 
 ##
 tspan = (0.0, 10.0)
-L=10
+L=40
 h = L/((n-1)*2pi)
 ps1 = [:γ => 1.0, :a => 0.2, :b => 2.0, :Dᵤ => 1.0/h, :Dᵥ => 50.0/h]
 ps = make_params(lrs; γ = 1.0, a = 0.2, b = 2.0, Dᵤ = 1.0, Dᵥ = 50.0)
-u0 = 0.0001 * randn(n, 2).^2
+u0 = 0.001 * randn(n,2).^2
 U0=copy(u0[:,1]); V0=copy(u0[:,2])
-
+dt = 0.01
 
 ##
-plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-plan! * u0
+(odeprob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
 
-U = similar(u0)
-odeprob = SplitODEProblem(build_d!(lrs,L), build_r!(lrs,plan!), vec(u0),tspan, (ps...,U), dt=0.0001)
 ##
-sol = solve(odeprob, ETDRK4()) ;
-u = [reshape(u,n,2) for u in sol.u]
-for u in u
-    plan! * u
+# sol = solve(odeprob, ETDRK4()) ;
+# u = [reshape(u,n,2) for u in sol.u]
+# for u in u
+#     plan! * u
+# end
+# u=stack(u;dims=3)
+# # plot_solutions(u, sol.t, ["u", "v"]; autolimits=true)
+# ##
+
+# odeprob1 = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+# sol1 = solve(odeprob1, saveat=dt, abstol=1e-10, reltol=1e-10)
+# U1 = reshape(stack(lat_getu(sol1, :U, lrs)), n, 1, length(sol1))
+# V1 = reshape(stack(lat_getu(sol1, :V, lrs)), n, 1, length(sol1))
+# u1=hcat(U1,V1)
+# #plot_solutions(u1, sol1.t, ["u", "v"]; autolimits=true)
+# plot_solutions(hcat(u,u1), sol.t, ["u_ps", "v_ps", "u_fd", "v_fd"]; autolimits=true)
+##
+function fsolveref(u0)
+    n=size(u0,1)
+    U0=copy(u0[:,1]); V0=copy(u0[:,2])
+    lattice = CartesianGrid(n)
+    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+    prob = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+    sol = solve(prob, FBDF(); abstol=1e-12, reltol=1e-12)
+    reshape(sol[end], n, 2)
 end
-u=stack(u;dims=3)
-plot_solutions(u, sol.t, ["u", "v"]; autolimits=true)
+
+function fsolve(u0, dt)
+    n=size(u0,1)
+    lattice = CartesianGrid(n)
+    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+    (prob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+    sol = solve(prob, ETDRK4())
+    u = reshape(sol[end],n,2)
+    plan! * u
+    u
+end
+
+function fu0(dx)
+    n=Int(L ÷ dx)
+    0.001 * randn(n,2).^2
+end
 ##
+dxs = logrange(0.1,1.0, length=8)
+dts = logrange(0.001,0.01, length=8)
+ref = fsolveref(fu0(dxs[1]/2))
+errgrid = error_grid(fsolve, ref, fu0, dxs, dts)
+fig,ax,hm = heatmap(dxs,dts,errgrid; colormap=:reds)
+Colorbar(fig[:, end+1], hm)
+# ##
+# @btime solve(odeprob1);
 
-odeprob1 = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
-sol1 = solve(odeprob1)
-U1 = reshape(stack(lat_getu(sol1, :U, lrs)), n, 1, length(sol1))
-V1 = reshape(stack(lat_getu(sol1, :V, lrs)), n, 1, length(sol1))
-u1=hcat(U1,V1)
-plot_solutions(u1, sol1.t, ["u", "v"]; autolimits=true)
+# @btime solve(odeprob1, FBDF());
+# @btime solve(odeprob, ETDRK4());
 
+# FFTW.set_num_threads(8)
+# @btime solve(odeprob, ETDRK4());
+# ##
 
-##
+# f_d = build_d!(lrs,L)
+# f_r = build_r!(lrs,plan!)
+# @profview solve(odeprob, ETDRK4())
 
-@btime solve(odeprob1);
-@time solve(odeprob, ETDRK4());
-##
-
-f_d = build_d!(lrs,L)
-f_r = build_r!(lrs,plan!)
-@profview solve(odeprob, ETDRK4())
+# @benchmark solve(odeprob, ETDRK4())
+# odeprob1 = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+# @benchmark solve(odeprob1)
