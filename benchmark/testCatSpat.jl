@@ -100,7 +100,6 @@ function mapp!(f!, sol::ODESolution)
     end
 end
 
-##
 
 
 model = @reaction_network begin
@@ -130,15 +129,15 @@ dt = 0.01
 ##
 (odeprob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
 
+#
+sol = solve(odeprob, ETDRK4()) ;
+u = [reshape(u,n,2) for u in sol.u]
+for u in u
+    plan! * u
+end
+u=stack(u;dims=3)
+# plot_solutions(u, sol.t, ["u", "v"]; autolimits=true)
 ##
-# sol = solve(odeprob, ETDRK4()) ;
-# u = [reshape(u,n,2) for u in sol.u]
-# for u in u
-#     plan! * u
-# end
-# u=stack(u;dims=3)
-# # plot_solutions(u, sol.t, ["u", "v"]; autolimits=true)
-# ##
 
 # odeprob1 = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
 # sol1 = solve(odeprob1, saveat=dt, abstol=1e-10, reltol=1e-10)
@@ -148,38 +147,38 @@ dt = 0.01
 # #plot_solutions(u1, sol1.t, ["u", "v"]; autolimits=true)
 # plot_solutions(hcat(u,u1), sol.t, ["u_ps", "v_ps", "u_fd", "v_fd"]; autolimits=true)
 ##
-function fsolveref(u0)
-    n=size(u0,1)
-    U0=copy(u0[:,1]); V0=copy(u0[:,2])
-    lattice = CartesianGrid(n)
-    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
-    prob = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
-    sol = solve(prob, FBDF(); abstol=1e-12, reltol=1e-12)
-    reshape(sol[end], n, 2)
-end
+# function fsolveref(u0)
+#     n=size(u0,1)
+#     U0=copy(u0[:,1]); V0=copy(u0[:,2])
+#     lattice = CartesianGrid(n)
+#     lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+#     prob = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+#     sol = solve(prob, FBDF(); abstol=1e-12, reltol=1e-12)
+#     reshape(sol[end], n, 2)
+# end
 
-function fsolve(u0, dt)
-    n=size(u0,1)
-    lattice = CartesianGrid(n)
-    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
-    (prob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
-    sol = solve(prob, ETDRK4())
-    u = reshape(sol[end],n,2)
-    plan! * u
-    u
-end
+# function fsolve(u0, dt)
+#     n=size(u0,1)
+#     lattice = CartesianGrid(n)
+#     lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+#     (prob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+#     sol = solve(prob, ETDRK4())
+#     u = reshape(sol[end],n,2)
+#     plan! * u
+#     u
+# end
 
-function fu0(dx)
-    n=Int(L ÷ dx)
-    0.001 * randn(n,2).^2
-end
-##
-dxs = logrange(0.1,1.0, length=8)
-dts = logrange(0.001,0.01, length=8)
-ref = fsolveref(fu0(dxs[1]/2))
-errgrid = error_grid(fsolve, ref, fu0, dxs, dts)
-fig,ax,hm = heatmap(dxs,dts,errgrid; colormap=:reds)
-Colorbar(fig[:, end+1], hm)
+# function fu0(dx)
+#     n=Int(L ÷ dx)
+#     0.001 * randn(n,2).^2
+# end
+# ##
+# dxs = logrange(0.1,1.0, length=8)
+# dts = logrange(0.001,0.01, length=8)
+# ref = fsolveref(fu0(dxs[1]/2))
+# errgrid = error_grid(fsolve, ref, fu0, dxs, dts)
+# fig,ax,hm = heatmap(dxs,dts,errgrid; colormap=:reds)
+# Colorbar(fig[:, end+1], hm)
 # ##
 # @btime solve(odeprob1);
 

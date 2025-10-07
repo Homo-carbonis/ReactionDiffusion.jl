@@ -7,13 +7,13 @@ using DifferentialEquations, FFTW, Symbolics
 struct PseudoSpectralProblem
     problem
     plan!
+    num_verts
+    num_species
 end
 
 
 
-
-
-function PseudoSpectralProblem(lrs, u0, p, tspan; L=2pi, dt=0.01)
+function PseudoSpectralProblem(lrs, u0, tspan, p, L, dt; steady_state=false)
     u0 = copy(u0)
     n = size(u0,1)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
@@ -24,11 +24,30 @@ function PseudoSpectralProblem(lrs, u0, p, tspan; L=2pi, dt=0.01)
     R = build_r!(lrs,plan!)
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
-    prob = SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt)
-    PseudoSpectralProblem(prob, plan!)
+    odeprob = SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt)
+    prob = steady_state ? SteadyStateProblem(odeprob) : odeprob
+    PseudoSpectralProblem(prob,plan!)
 end
 
 
+function solve(problem::PseudoSpectralProblem, alg=ETDRK4(); kwargs...)
+    (;problem, plan!) = problem
+    alg = something(alg, ETDRK4())
+    if problem isa SteadyStateProblem
+        sol = solve(problem, DynamicSS(alg); kwargs...).original
+    else
+        sol = solve(problem, alg; kwargs...)
+    end
+
+    map!(sol) do u
+        reshape(u,)
+        plan! * u
+    end
+
+    sol
+end
+
+"Build function for the reaction component."
 function build_r!(lrs, plan!)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
@@ -58,6 +77,7 @@ function build_r!(lrs, plan!)
     ODEFunction(f̂!; jac=fjac!)
 end
 
+"Build linear operator for the diffusion component."
 function build_d!(lrs, L=2pi)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
@@ -89,14 +109,14 @@ function diffusion_parameters(lrs::LatticeReactionSystem)
 end
 
 
-"Build a vector of parameters in the right order from the given keyword values"
+"Build a vector of parameters from the given keyword values in the same order as `parameters(network)`"
 function make_params(network; params...)
     symbols = nameof.(parameters(network))
     Tuple(params[k] for k in symbols)
 end
 
-"Transform each value of `sol` from `u` to `f(u)"
-function mapp!(f!, sol::ODESolution)
+"Transform each value in `sol` from `u` to `f(u)"
+function map!(f!, sol::ODESolution)
     for i in eachindex(sol.u)
         f!(sol.u[i])
     end
@@ -107,103 +127,6 @@ function mapp!(f!, sol::ODESolution)
     end
 end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function transform(f!,plan!)
-    function (du,u,p,t)
-        du .= u
-        plan! * du
-        for i in 1:n
-            f!(du[:,i],du[:,i],p,t) # 
-        end
-        plan! * du
-    end
-end
-
-
-function PseudoSpectralProblem(lrs, u0, tspan, l, d, p; ss=true)
-    sps=species(lrs)
-    params = parameters(lrs)
-    
-    n_verts = Catalyst.num_verts(lrs)
-    n_species = Catalyst.num_species(lrs)
-    u0_ = copy(u0)
-    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(u0_, FFTW.REDFT00,  2; flags=FFTW.MEASURE) # Orthonormal DCT-I
-    plan! * u0 # transform ICs
-
-    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-
-    # Build optimized Jacobian and ODE functions using Symbolics.jl
-    @variables u[1:n_species, 1:n_verts]
-
-    du_r = mapslices(collect(u),dims=1) do u
-            s = Dict(zip(sps, u))
-            [substitute(expr, s) for expr in rhs]
-    end
-    f_r! = eval(Symbolics.build_function(du_n,u,params)[2]) # Index [2] denotes in-place function.
-    f_r! = transform(f_r!, plan!)
-
-    jac_r = Symbolics.sparsejacobian(vec(du_n),vec(u))
-    fjac_r! = eval(Symbolics.build_function(jac_r,vec(u),params)[2])
-    fjac_r! = transform(fjac_r!, plan!)
-
-    D = [r.rate for r in Catalyst.spatial_reactions(lrs)]
-
-    k = 0:n_verts-1
-    h = l / (n_verts-1)
-    λ = [-d * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for d in d, k in k]
-
-    du_d = λ .* u
-    f_d! = eval(Symbolics.build_function(du_d,u)[2])
-    jac_d = Symbolics.sparsejacobian(vec(du_d),vec(u))
-    fjac_d! = eval(Symbolics.build_function(jac_d,vec(u))[2])
-    odeprob = SplitODEProblem(f_d!, f_n!, u0, tspan, p)
-    if ss
-        odeprob = SteadyStateProblem(odeprob)
-    end
-    PseudoSpectralProblem(odeprob, plan!)
-end
-
-function DifferentialEquations.solve(problem::PseudoSpectralProblem, alg=KenCarp3(); kwargs...)
-    (;problem, plan!) = problem
-    alg = something(alg, KenCarp3())
-    if problem isa SteadyStateProblem
-        sol = solve(problem, DynamicSS(alg); kwargs...).original
-    else
-        sol = solve(problem, alg; kwargs...)
-    end
-
-    map!(sol) do u
-        plan! * u
-        permutedims(u)
-    end
-    sol
-end
-
-
-"Transform each value of `sol` from `u` to `f(u)"
-function map!(f, sol::ODESolution)
-    for i in eachindex(sol.u)
-        sol.u[i] = f(sol.u[i])
-    end
-    for i in eachindex(sol.k)
-        for j in eachindex(sol.k[i])
-            sol.k[i][j] = f(sol.k[i][j])
-        end
-    end
-end
 
 end
 
