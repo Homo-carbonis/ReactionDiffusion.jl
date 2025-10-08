@@ -419,21 +419,27 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 function simulate(model,param; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
     p, d, ic, l, seed, noise = returnSingleParameter(model, param) #TODO replace with unpacking syntax
     u0 = createIC(ic, seed, noise)
-
-    p = merge(param.reaction, param.diffusion)
     if discretisation == :pseudospectral
         alg = something(alg,ETDRK4())
-        prob, transform = pseudospectral_problem(model, u0, tspan, p, 2pi, dt)
+        p = merge(param.reaction, param.diffusion)
+        prob, transform = pseudospectral_problem(model, u0, tspan, p, l, dt)
         #prob = SteadyStateProblem(prob)
         #sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
-        steadystate = ContinuousCallback((u,t,integrator) -> maximum(u-integrator.uprev), terminate!)
+        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-6, terminate!)
         sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
-        [transform(u) for u in sol.u]
+        stack(transform(u) for u in sol.u)
     elseif discretisation == :finitedifference
         alg = something(alg, FBDF())
-        prob = ODEProblem(model,u0,tspan,p;reltol=reltol,abstol=abstol)
+        sps = species(model)
+        U0 = Dict(zip(sps, eachcol(u0)))
+        @show U0
+        n = Catalyst.num_verts(model)
+        d = Dict(s => d*n*2pi/l for (s,d) in param.diffusion)
+        p = merge(param.reaction, d)
+        prob = ODEProblem(model,U0,tspan,p;reltol=reltol,abstol=abstol)
         prob = SteadyStateProblem(prob)
         sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
-        sol.u
+        reshape(stack(stack(lat_getu(sol.original,nameof(s.f),model)) for s in sps), n, length(sps), length(sol.original))
+        #eachslice(reshape(stack(stack.(lat_getu(sol.original, s, model) for s in sps)), n, length(sps), length(sol.original)); dims=3)
     end
 end
