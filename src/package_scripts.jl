@@ -169,10 +169,10 @@ function get_params(model, turing_param)
         error("Please input only a single parameter set, not multiple (e.g., turing_params[1] instead of turing_params)")
     else
         param = model_parameters()
-        param.reaction = Dict(zip(string.(parameters(model)), turing_param.reaction_params))
-        param.diffusion = Dict(zip(chop.(string.(unknowns(model)),head=0,tail=3), turing_param.diffusion_constants))
+        param.reaction = Dict(zip(nameof.(vertex_parameters(model)), turing_param.reaction_params))
+        param.diffusion = Dict(zip(nameof.(edge_parameters(model)), turing_param.diffusion_constants))
         param.domain_size = 3*turing_param.wavelength # default value
-        param.initial_condition = Dict(zip(chop.(string.(unknowns(model)),head=0,tail=3), turing_param.steady_state_values))
+        param.initial_condition = Dict(zip([nameof(s.f) for s in species(model)], turing_param.steady_state_values))
         param.initial_noise = 0.01
         param.random_seed = 0
         return param
@@ -181,16 +181,22 @@ end
 
 function returnParameterSets(model, params)
     # read in parameters (ps), diffusion constants (ds), initial conditions (ics), domain sizes (ls), random seeds (seeds) and random noise (noise)
-    ps = Array{Array{Float64,1},1}(undef,0)
-    for p in parameters(model)
-        push!(ps,get!(params.reaction,string(p),[0])) ## default is zero
+    ps = Vector{Vector{Float64}}(undef,0)
+    for p in vertex_parameters(model) 
+        val = get(params.reaction, nameof(p), [0]) # default is 0
+        push!(ps,val)
     end
 
-    ds = Array{Array{Float64,1},1}(undef,0)
-    ics = Array{Array{Float64,1},1}(undef,0)
-    for state in unknowns(model)
-        push!(ds,get!(params.diffusion,chop(string(state), head=0,tail=3),[0])) ## default is zero
-        push!(ics,get!(params.initial_condition,chop(string(state), head=0,tail=3),[1])) ## default is one
+    ds = Vector{Vector{Float64}}(undef,0)
+    for p in edge_parameters(model)
+        val = get(params.diffusion, nameof(p), [1]) # default is 1
+        push!(ds, val)
+    end
+
+    ics = Vector{Vector{Float64}}(undef,0)
+    for s in species(model)
+        val = get(params.initial_condition, nameof(s.f), [1]) # default is 1
+        push!(ics, val)
     end
     seeds = Int64.(params.random_seed)
     noise = params.initial_noise
@@ -200,17 +206,24 @@ end
 
 function returnSingleParameter(model, params)
     # read in parameters (ps), diffusion constants (ds), initial conditions (ics), domain sizes (ls), random seeds (seeds) and random noise (noise)
-    ps = Array{Float64,1}(undef,0)
-    for p in parameters(model)
-        push!(ps,get!(params.reaction,string(p),0)) ## default is zero
+    ps = Vector(undef,0)
+    for p in vertex_parameters(model) 
+        val = get(params.reaction, nameof(p), 0) # default is 0
+        push!(ps,val)
     end
 
-    ds = Array{Float64,1}(undef,0)
-    ics = Array{Float64,1}(undef,0)
-    for state in unknowns(model)
-        push!(ds,get!(params.diffusion,chop(string(state), head=0,tail=3),0)) ## default is zero
-        push!(ics,get!(params.initial_condition,chop(string(state), head=0,tail=3),1)) ## default is one
+    ds = Vector(undef,0)
+    for p in edge_parameters(model)
+        val = get(params.diffusion, nameof(p), [1]) # default is 1
+        push!(ds, val)
     end
+
+    ics = Vector(undef,0)
+    for s in species(model)
+        val = get(params.initial_condition, nameof(s.f), [1]) # default is 1
+        push!(ics, val)
+    end
+ 
     seeds = Int64(params.random_seed)
     noise = params.initial_noise
     ls = params.domain_size
@@ -235,7 +248,7 @@ function get_param(model, turing_params, name, type)
     if type == "reaction"
         labels = []
         for p in parameters(model)
-            push!(labels,string(p))
+            push!(labels,nameof(p))
         end
         index = findall(labels .== name)
         if length(index) == 0
@@ -246,8 +259,8 @@ function get_param(model, turing_params, name, type)
         end
     elseif type == "diffusion"
         labels = []
-        for state in unknowns(model)
-            push!(labels,chop(string(state), head=0,tail=3))
+        for state in species(model)
+            push!(labels,chop(nameof(state.f), head=0,tail=3))
         end
         index = findall(labels .== name)
         if length(index) == 0
@@ -288,7 +301,7 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
     n_species = length(unknowns(model))
 
     # convert reaction network to ODESystem
-    odesys = convert(ODESystem, model)
+    odesys = convert(ODESystem, Catalyst.reactionsystem(model))
 
     # build jacobian function
     jac = ModelingToolkit.generate_jacobian(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
@@ -403,17 +416,24 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,param; tspan=Inf, discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, maxiters = 1e3)
-    p, d, ic, l, seed, noise = returnSingleParameter(model, param)
-
-    # convert reaction network to ODESystem
-    odesys = convert(ODESystem, model)
-
-    # build ODE function
-    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_ode = ModelingToolkit.eval(f_gen)
-
+function simulate(model,param; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+    p, d, ic, l, seed, noise = returnSingleParameter(model, param) #TODO replace with unpacking syntax
     u0 = createIC(ic, seed, noise)
-    prob = discretisation(f_ode, u0, tspan, l, d, p; ss = (tspan==Inf))
-    solve(prob, alg; reltol=reltol,abstol=abstol, maxiters=maxiters, verbose=false)
+
+    p = merge(param.reaction, param.diffusion)
+    if discretisation == :pseudospectral
+        alg = something(alg,ETDRK4())
+        prob, transform = pseudospectral_problem(model, u0, tspan, p, 2pi, dt)
+        #prob = SteadyStateProblem(prob)
+        #sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
+        steadystate = ContinuousCallback((u,t,integrator) -> maximum(u-integrator.uprev), terminate!)
+        sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
+        [transform(u) for u in sol.u]
+    elseif discretisation == :finitedifference
+        alg = something(alg, FBDF())
+        prob = ODEProblem(model,u0,tspan,p;reltol=reltol,abstol=abstol)
+        prob = SteadyStateProblem(prob)
+        sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
+        sol.u
+    end
 end

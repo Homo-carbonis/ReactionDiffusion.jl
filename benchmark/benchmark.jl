@@ -1,47 +1,79 @@
-using ReactionDiffusion, DifferentialEquations, Catalyst, BenchmarkTools
+using DifferentialEquations, BenchmarkTools
 
-function benchmark(model,param, tspan; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8)
-    p, d, ic, l, seed, noise = ReactionDiffusion.returnSingleParameter(model, param)
-    # convert reaction network to ODESystem
-    odesys = convert(ODESystem, model)
 
-    # build ODE function
-    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_oop = ModelingToolkit.eval(f_gen)
-    f_ode(u,p,t) = f_oop(u,p,t)
 
-    u0 = randn(ReactionDiffusion.n_gridpoints,length(ic)).^2
-    prob = discretisation(f_ode, u0, tspan, l, d, p; ss=false)
-    @benchmark $solve($prob, $alg; reltol=$reltol,abstol=$abstol)
+
+"Binary search to find dx and dt needed to achieve the given tolerances"
+function search(a,b, cost; max_steps=10)
+    isze      cost(a,b)
+    pass && return (dx,dt)
+
+    function tune(dx,dt,steps)
+        @show (dx,dt)
+        steps == 0 && error("Failed to achieve tolerances.")
+        dx_next = dx/2; dt_next = dt/2
+        int_dx, transform_dx = init(dx_next,dt)
+        int_dt, transform_dt = init(dx,dt_next)
+        int_ref_dx = init_ref(dx_next)
+        int_ref_dt = init_ref(dt_next)
+
+        pass_dx,t_fail_dx = test_tol(int_dx, int_ref_dx, abstol, reltol; transform=transform_dx)
+        pass_dt,t_fail_dt = test_tol(int_dt, init_ref_dt, abstol, reltol; transform=transform_dt)
+        @show (t_fail_dx,t_fail_dt)
+
+        if pass_dx
+            dx_next, dt
+        elseif pass_dt
+            dx, dt_next
+        elseif t_fail_dx > t_fail_dt
+            tune(dx_next,dt,steps-1)
+        else
+            tune(dx,dt_next,steps-1)
+        end
+	end
+
+    tune(dx,dt,max_steps)
 end
 
-model = @reaction_network begin
-    γ*a + γ*U^2*V,  ∅ --> U
-    γ,              U --> ∅
-    γ*b,            ∅ --> V
-    γ*U^2,          V --> ∅
-end 
+"Binary search to find dx and dt needed to achieve the given tolerances"
+function tune(init, init_ref, dx, dt; abstol=1e-4, reltol=1e-2, max_steps=10)
+    pass,t_fail = test_tol(init(dx,dt), init_ref(dx), abstol, reltol)
+    pass && return (dx,dt)
 
+    function tune(dx,dt,steps)
+        @show (dx,dt)
+        steps == 0 && error("Failed to achieve tolerances.")
+        dx_next = dx/2; dt_next = dt/2
+        int_dx, transform_dx = init(dx_next,dt)
+        int_dt, transform_dt = init(dx,dt_next)
+        int_ref_dx = init_ref(dx_next)
+        int_ref_dt = init_ref(dt_next)
 
-params = model_parameters()
+        pass_dx,t_fail_dx = test_tol(int_dx, int_ref_dx, abstol, reltol; transform=transform_dx)
+        pass_dt,t_fail_dt = test_tol(int_dt, init_ref_dt, abstol, reltol; transform=transform_dt)
+        @show (t_fail_dx,t_fail_dt)
 
-params.reaction["a"] = [0.2]
-params.reaction["b"] = [2.0]
-params.reaction["γ"] = [1.0]
+        if pass_dx
+            dx_next, dt
+        elseif pass_dt
+            dx, dt_next
+        elseif t_fail_dx > t_fail_dt
+            tune(dx_next,dt,steps-1)
+        else
+            tune(dx,dt_next,steps-1)
+        end
+	end
 
-params.diffusion["U"] = [1.0] 
-params.diffusion["V"] = [50.0]
+    tune(dx,dt,max_steps)
+end
 
-seed = 324
-
-turing_params = returnTuringParams(model, params,batch_size=2);
-
-
-param1 = get_params(model, turing_params[1])
-param1.random_seed = seed
-
-benchmark(model,param1, (0,20); discretisation=PseudoSpectralProblem, alg=KenCarp3() , abstol=1e-4, reltol=1e-4)
-benchmark(model,param1, (0,20); discretisation=FiniteDifferenceProblem, alg=KenCarp4(), abstol=1e-4, reltol=1e-4)
-
-sol1 = simulate(model,param1; tspan=(0,10), discretisation=PseudoSpectralProblem)
-sol2 = simulate(model,param1; tspan=(0,10), discretisation=FiniteDifferenceProblem)
+function test_tol(int, int_ref, abstol, reltol; transform=identity)
+    for _ in int
+        @show int.t
+        step!(int_ref, int.t, true)
+        u = transform(int.u)
+        u_ref = int_ref.u
+        Plot.maximum_error(u, u_ref) < abstol && maximum_rel_error(u, u_ref) < reltol || return false, int.t
+    end
+    return true,int.t
+end

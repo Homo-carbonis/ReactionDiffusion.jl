@@ -1,106 +1,12 @@
-#include("../src/PseudoSpectral.jl")
-#using .PseudoSpectral
-using Revise, Catalyst, DifferentialEquations, FFTW, BenchmarkTools
+using Revise, Catalyst, DifferentialEquations, BenchmarkTools, Interpolations
+
+includet("../src/PseudoSpectral.jl")
+using .PseudoSpectral
 
 includet("../src/Plot.jl")
 using .Plot, WGLMakie
 
-
-
-function pseudospectral_problem(lrs, u0, tspan, p, L, dt)
-    u0 = copy(u0)
-    n = size(u0,1)
-    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-    plan! * u0
-    U = similar(u0)
-    ps = (p...,U)
-    D = build_d!(lrs,L)
-    R = build_r!(lrs,plan!)
-    update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
-    update_coefficients!(R,u0,ps,0.0)
-    (SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt), plan!)
-end
-
-
-function build_r!(lrs, plan!)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    sps = species(lrs)
-    p = parameters(lrs)
-    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-
-    @variables u[1:n, 1:m]
-
-    du = mapslices(u,dims=2) do v
-            s = Dict(zip(sps, v))
-            [substitute(expr, s) for expr in rhs]
-    end
-    jac = Symbolics.sparsejacobian(vec(du),vec(u); simplify=true)
-    (f,f!) = Symbolics.build_function(du, u, p; expression=Val{false})
-    (fjac,fjac!) = Symbolics.build_function(jac, vec(u), p, (); expression=Val{false})
-    function f̂!(du,u,p,t)
-        DU=reshape(du,n,m)
-        U = p[end]
-        U .= reshape(u,n,m)
-        q = p[1:end-1]
-        plan! * U
-        f!(DU, U, q)
-        plan! * DU
-        nothing
-    end
-    ODEFunction(f̂!; jac=fjac!)
-end
-
-function build_d!(lrs, L=2pi)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    p = parameters(lrs)
-    dps = diffusion_parameters(lrs)
-    k = 0:n-1
-    h = L / (n-1)
-    # Correction from -D(kh)^2 for the discrete transform.
-    λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps])
-    (f,f!) = Symbolics.build_function(λ, p; expression=Val{false})
-    λ0 = similar(λ, Float64)
-    update!(λ,u,p,t) = f!(λ,p[1:end-1])
-    DiagonalOperator(λ0; update_func! = update!)
-end
-
-
-"Return diffusion rates for `lrs` in the same order as `species(lrs)`"
-function diffusion_parameters(lrs::LatticeReactionSystem)
-    sps = species(lrs)
-    D::Vector{Num} = zeros(length(sps))
-    srs = Catalyst.spatial_reactions(lrs)
-    keys = getfield.(srs, :species)
-    vals = getfield.(srs, :rate)
-    for (k,v) in zip(keys,vals)
-        i = findfirst(u -> u===k, sps)
-        D[i] = v
-    end
-    D
-end
-
-
-"Build a vector of parameters in the right order from the given keyword values"
-function make_params(network; params...)
-    symbols = nameof.(parameters(network))
-    Tuple(params[k] for k in symbols)
-end
-
-"Transform each value of `sol` from `u` to `f(u)"
-function mapp!(f!, sol::ODESolution)
-    for i in eachindex(sol.u)
-        f!(sol.u[i])
-    end
-    for i in eachindex(sol.k)
-        for j in eachindex(sol.k[i])
-            f!(sol.k[i][j])
-        end
-    end
-end
-
-
+includet("benchmark.jl")
 
 model = @reaction_network begin
     γ*a + γ*U^2*V,  ∅ --> U
@@ -127,15 +33,61 @@ U0=copy(u0[:,1]); V0=copy(u0[:,2])
 dt = 0.01
 
 ##
-(odeprob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+prob, transform = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+sol = solve(prob, ETDRK4());
 
-#
-sol = solve(odeprob, ETDRK4()) ;
-u = [reshape(u,n,2) for u in sol.u]
-for u in u
-    plan! * u
+
+##
+
+
+x=range(0,L, n)
+u0_itp = cubic_spline_interpolation(x,u0)
+
+function myinit(dx,dt)
+    x = 0:dx:L
+    u0 = stack(itp.(x) for itp in u0_itp) 
+    n=size(u0,1)
+    m=size(u0,2)
+
+    lattice = CartesianGrid(n)
+    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+    prob,transform = PseudoSpectralProblem(lrs, u0, tspan,ps,L,dt)
+    int = init(prob, ETDRK4())
+    int,transform
 end
-u=stack(u;dims=3)
+
+function init_ref(dx)
+    x = 0:dx:L
+    u0 = stack(itp.(x) for itp in u0_itp) 
+    n=length(x)
+    U0=copy(u0[:,1]); V0=copy(u0[:,2])
+    lattice = CartesianGrid(n)
+    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+    prob = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+    init(prob, FBDF())
+end
+
+tune(myinit,init_ref, 1.0,1.0)
+    x = 0:dx:L
+    u0 = stack(itp.(x) for itp in u0_itp) 
+    n=size(u0,1)
+    m=size(u0,2)
+
+    lattice = CartesianGrid(n)
+    lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+    prob,transform = PseudoSpectralProblem(lrs, u0, tspan,ps,L,dt)
+    int = init(prob, ETDRK4())
+    int,transform
+
+
+
+
+
+# u = [reshape(u,n,2) for u in sol.u]
+# for u in u
+#     plan! * u
+# end
+# u=stack(u;dims=3)
 # plot_solutions(u, sol.t, ["u", "v"]; autolimits=true)
 ##
 
@@ -168,17 +120,59 @@ u=stack(u;dims=3)
 #     u
 # end
 
-# function fu0(dx)
-#     n=Int(L ÷ dx)
-#     0.001 * randn(n,2).^2
-# end
 # ##
-# dxs = logrange(0.1,1.0, length=8)
-# dts = logrange(0.001,0.01, length=8)
-# ref = fsolveref(fu0(dxs[1]/2))
-# errgrid = error_grid(fsolve, ref, fu0, dxs, dts)
+
+# dxs = range(0.200001,1.00001, length=1)
+# dts = range(0.001,0.2, length=8)
+# x = 0:dxs[1]/2:L
+# u0 = 0.0001*randn(length(x),2).^2
+# u1 = fsolveref(u0)
+# errgrid = errormap(fsolve, x, u0, u1, dxs, dts)
 # fig,ax,hm = heatmap(dxs,dts,errgrid; colormap=:reds)
 # Colorbar(fig[:, end+1], hm)
+# fig
+##
+
+# x = range(0,L,n)
+# u0_itp = [cubic_spline_interpolation(x, u) for u in eachcol(u0)]
+
+# function myinit(dx,dt)
+#     x = 0:dx:L
+#     u0 = stack(itp.(x) for itp in u0_itp) 
+#     n=size(u0,1)
+#     m=size(u0,2)
+
+#     lattice = CartesianGrid(n)
+#     lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+#     (prob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+#     int = init(prob, ETDRK4())
+# end
+
+# function transform(dx)
+#     x = 0:dx:L
+#     u0 = stack(itp.(x) for itp in u0_itp) 
+#     n=size(u0,1)
+#     m=size(u0,2)
+#     (prob, plan!) = pseudospectral_problem(lrs, u0, tspan,ps,L,dt)
+#     function(u)
+#         u = reshape(copy(u),n,m)
+#         plan! * u
+#         u
+#     end
+# end
+
+# function init_ref(dx)
+#     x = 0:dx:L
+#     u0 = stack(itp.(x) for itp in u0_itp) 
+#     n=length(x)
+#     U0=copy(u0[:,1]); V0=copy(u0[:,2])
+#     lattice = CartesianGrid(n)
+#     lrs = LatticeReactionSystem(model, [v_diffusion, u_diffusion], lattice)
+#     prob = ODEProblem(lrs, [:U =>U0, :V=>V0], tspan, ps1, jac=true, sparse=true)
+#     int = init(prob, FBDF())
+# end
+
+# tune(myinit,init_ref, 1.0,1.0)
 # ##
 # @btime solve(odeprob1);
 

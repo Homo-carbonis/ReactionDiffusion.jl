@@ -1,26 +1,34 @@
 # Test scripts on Schnakenburg model (a well-known reaction-diffusion system with analytical results for its Turing stability region)
-
-model = @reaction_network begin
+reaction = @reaction_network begin
     γ*a + γ*U^2*V,  ∅ --> U
     γ,              U --> ∅
     γ*b,            ∅ --> V
     γ*U^2,          V --> ∅
 end 
 
+diffusion = [
+    (@transport_reaction Dᵤ U),
+    (@transport_reaction Dᵥ V)
+]
+
+lattice = CartesianGrid(128)
+
+model = LatticeReactionSystem(reaction, diffusion, lattice)
 
 params = model_parameters()
 
-params.reaction["a"] = screen_values(min = 0, max = 0.6, mode = "linear", number = 4)
-params.reaction["b"] = screen_values(min = 0.0, max = 3.0, mode = "linear", number = 4)
-params.reaction["γ"] = [1.0]
+params.reaction[:a] = screen_values(min = 0, max = 0.6, mode = "linear", number = 4)
+params.reaction[:b] = screen_values(min = 0.0, max = 3.0, mode = "linear", number = 4)
+params.reaction[:γ] = [1.0]
 
-params.diffusion["U"] = [1.0] 
-params.diffusion["V"] = [50.0]
+params.diffusion[:Dᵤ] = [1.0]
+params.diffusion[:Dᵥ] = [50.0]
 
+#params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
 
-turing_params = returnTuringParams(model, params,batch_size=2);
-a = get_param(model, turing_params,"a","reaction")
-b = get_param(model, turing_params,"b","reaction")
+turing_params = returnTuringParams(model, params, batch_size=2);
+a = get_param(model, turing_params,:a,"reaction")
+b = get_param(model, turing_params,:b,"reaction")
 
 # Test whether the computed Turing parameters match the ground-truth Turing instability region
 @test a == [0.0; 0.2; 0.0; 0.2]
@@ -29,7 +37,7 @@ b = get_param(model, turing_params,"b","reaction")
 
 param1 = get_params(model, turing_params[4])
 
-@testset "Simulate using $discretisation" for discretisation in (FiniteDifferenceProblem, PseudoSpectralProblem)
+@testset "Simulate using $discretisation" for discretisation in [:finitedifference, :pseudospectral]
     sol= simulate(model,param1; discretisation=discretisation)
 
     U_final = last(sol)[:,1]

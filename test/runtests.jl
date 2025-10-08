@@ -1,4 +1,4 @@
-using ReactionDiffusion
+using ReactionDiffusion, Catalyst
 using Test
 
 @testset "Schnakenburg" begin

@@ -1,21 +1,15 @@
 module PseudoSpectral
 
-export PseudoSpectralProblem, solve
+export pseudospectral_problem
 
-using DifferentialEquations, FFTW, Symbolics
-
-struct PseudoSpectralProblem
-    problem
-    plan!
-    num_verts
-    num_species
-end
+using DifferentialEquations, FFTW, Symbolics, Catalyst
 
 
-
-function PseudoSpectralProblem(lrs, u0, tspan, p, L, dt; steady_state=false)
+function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
+    p = make_params(lrs; p...)
     u0 = copy(u0)
     n = size(u0,1)
+    m = size(u0,2)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
     U = similar(u0)
@@ -24,28 +18,15 @@ function PseudoSpectralProblem(lrs, u0, tspan, p, L, dt; steady_state=false)
     R = build_r!(lrs,plan!)
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
-    odeprob = SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt)
-    prob = steady_state ? SteadyStateProblem(odeprob) : odeprob
-    PseudoSpectralProblem(prob,plan!)
-end
-
-
-function solve(problem::PseudoSpectralProblem, alg=ETDRK4(); kwargs...)
-    (;problem, plan!) = problem
-    alg = something(alg, ETDRK4())
-    if problem isa SteadyStateProblem
-        sol = solve(problem, DynamicSS(alg); kwargs...).original
-    else
-        sol = solve(problem, alg; kwargs...)
-    end
-
-    map!(sol) do u
-        reshape(u,)
+    prob = SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt; kwargs...)
+    function transform(u)
+        u = reshape(copy(u),n,m)
         plan! * u
+        u
     end
-
-    sol
+    prob, transform
 end
+
 
 "Build function for the reaction component."
 function build_r!(lrs, plan!)
@@ -114,19 +95,6 @@ function make_params(network; params...)
     symbols = nameof.(parameters(network))
     Tuple(params[k] for k in symbols)
 end
-
-"Transform each value in `sol` from `u` to `f(u)"
-function map!(f!, sol::ODESolution)
-    for i in eachindex(sol.u)
-        f!(sol.u[i])
-    end
-    for i in eachindex(sol.k)
-        for j in eachindex(sol.k[i])
-            f!(sol.k[i][j])
-        end
-    end
-end
-
 
 end
 

@@ -1,6 +1,6 @@
 module Plot
-using LinearAlgebra, Interpolations, Printf, Makie
-export plot_solutions, error_grid
+using LinearAlgebra, Statistics, Interpolations, Printf, Makie, Base.Threads
+export plot_solutions, errormap
 
 function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimits=true, steps = 32)
     x_steps = size(u, 1)
@@ -23,18 +23,21 @@ function plot_solutions(u,t, labels; l=1, normalise=true, hide_y=true, autolimit
     display(fig)
 end
 
-function error_grid(fsolve, ref, fu0, dxs, dts)
-	x_ref = range(0,1; length=size(ref,1))
-	i_ref = [linear_interpolation(x_ref, u) for u in eachcol(ref)]
-	err = Matrix{Float64}(undef, length(dts), length(dxs))
-	for (j,dx) in enumerate(dxs)
-		u0 = fu0(dx)
-		x = range(0,1; length=size(u0,1))
-		u_ref = stack(r.(x) for r in i_ref) 
-		for (i,dt) in enumerate(dts)
+"Generate a 2d map of error with respect to dx and dt."
+function errormap(fsolve, x, u0, u1, dxs, dts)
+	err = Matrix{Float64}(undef, length(dxs), length(dts))
+	u0_itp = [cubic_spline_interpolation(x, u) for u in eachcol(u0)]
+	u1_itp = [cubic_spline_interpolation(x, u) for u in eachcol(u1)]
+	L = x[end]-x[1]
+	@threads for i in eachindex(dxs)
+		local dx = dxs[i]
+		local x = 0:dx:L
+		local u0 = stack(itp.(x) for itp in u0_itp) 
+		local u1 = stack(itp.(x) for itp in u1_itp) 
+		for (j,dt) in enumerate(dts)
 			@printf("dx = %.2f, dt = %.2f\n", dx,dt)
-			u = fsolve(u0,dx,dt)
-			err[i,j] = maximum_error(u,u_ref)
+			local u = fsolve(u0,dt)
+			err[i,j] = mean_error(u,u1)
 		end
 	end
 	err
