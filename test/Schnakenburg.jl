@@ -38,9 +38,9 @@ b = get_param(model, turing_params,:b,"reaction")
 param1 = get_params(model, turing_params[4])
 
 @testset "Simulate using $discretisation" for discretisation in [:finitedifference, :pseudospectral]
-    sol= simulate(model,param1; discretisation=discretisation)
+    u,t= simulate(model,param1; discretisation=discretisation)
 
-    U_final = last(sol)[:,1]
+    U_final = u[:,1,end]
     dynamicRange = maximum(U_final)/minimum(U_final) 
     deviation = sign.(U_final.- 0.5*(maximum(U_final) .+ minimum(U_final)))
     halfMaxSignChanges = length(findall(!iszero,diff(deviation)))

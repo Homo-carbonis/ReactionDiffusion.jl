@@ -427,19 +427,21 @@ function simulate(model,param; tspan=Inf, discretisation=:pseudospectral, alg=no
         #sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
         steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-6, terminate!)
         sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
-        stack(transform(u) for u in sol.u)
+        u = stack(transform(u) for u in sol.u)
+        t = sol.t
     elseif discretisation == :finitedifference
         alg = something(alg, FBDF())
         sps = species(model)
         U0 = Dict(zip(sps, eachcol(u0)))
-        @show U0
         n = Catalyst.num_verts(model)
         d = Dict(s => d*n*2pi/l for (s,d) in param.diffusion)
         p = merge(param.reaction, d)
         prob = ODEProblem(model,U0,tspan,p;reltol=reltol,abstol=abstol)
         prob = SteadyStateProblem(prob)
         sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
-        reshape(stack(stack(lat_getu(sol.original,nameof(s.f),model)) for s in sps), n, length(sps), length(sol.original))
-        #eachslice(reshape(stack(stack.(lat_getu(sol.original, s, model) for s in sps)), n, length(sps), length(sol.original)); dims=3)
+        # Reshape solution into matrix of dimensions: n_verts x n_species x n_time_steps.
+        u = reshape(stack(stack(lat_getu(sol.original,nameof(s.f),model)) for s in sps), n, length(sps), length(sol.original))
+        t = sol.original.t
     end
+    (u,t)
 end
