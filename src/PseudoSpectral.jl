@@ -75,7 +75,13 @@ function build_d!(lrs, L=2pi)
 end
 
 
-"Return diffusion rates for `lrs` in the same order as `species(lrs)`"
+"Build a tuple of parameters from the given keyword values in the same order as `parameters(network)`"
+function make_params(network; params...)
+    symbols = nameof.(parameters(network))
+    Tuple(params[k] for k in symbols)
+end
+
+"Return diffusion rates for `lrs` in the same order as `species(lrs)` with a default of 0"
 function diffusion_parameters(lrs::LatticeReactionSystem)
     sps = species(lrs)
     D::Vector{Num} = zeros(length(sps))
@@ -89,12 +95,6 @@ function diffusion_parameters(lrs::LatticeReactionSystem)
     D
 end
 
-
-"Build a vector of parameters from the given keyword values in the same order as `parameters(network)`"
-function make_params(network; params...)
-    symbols = nameof.(parameters(network))
-    Tuple(params[k] for k in symbols)
-end
 
 end
 

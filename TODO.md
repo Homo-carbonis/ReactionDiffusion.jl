@@ -1,9 +1,6 @@
-- Improve params interface. (Look at Catalyst docs for existing interface)
+- Improve params interface. Just pass single Dict/vect of pairs, containing all params.
 - Incorporate benchmark code
 - Add interactive Makie plots
 - Verify spectral solutions
-- Try Catalyst's spatial simulations and adopt @transport_reaction macro.
 - Use features of EnsembleProblem to search for parameters.
 - Continue port to GPU
-- Add Benchmark code.
-- Look into using Symbolics to simplify f_n.
