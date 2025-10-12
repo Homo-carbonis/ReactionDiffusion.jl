@@ -7,6 +7,7 @@ using Catalyst, Symbolics, DifferentialEquations, LinearAlgebra, Combinatorics, 
 
 export returnTuringParams, model_parameters, screen_values, get_params, get_param, simulate
 export @reaction_network, @transport_reaction, LatticeReactionSystem, CartesianGrid # Re-export Catalyst interface.
+export @transport_reactions # Extend Catalyst interface.
 export endpoint, timepoint
 
 mutable struct save_turing
@@ -437,8 +438,14 @@ end
 
 
 
-macro transport_reactions(expr)
-    (
+macro transport_reactions(ex)
+    dx = gensym(dx)
+    Expr(:block,
+        :(@parameters $dx),
+        (:(@transport_reaction $p/$dx $s) for (p,s) in ex.args)...)
+end
+
+
         
 
 
