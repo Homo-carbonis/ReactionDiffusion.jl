@@ -393,11 +393,13 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `save_everystep`: controls whether all timepoints are saved, defaults to `true`
  
 """
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+#tmp lrs var
+function simulate(model,params, lrs; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
     params = Dict(params)
     L = model.domain_size
-    n = Int(L ÷ dx)
-    lrs = LatticeReactionSystem(model, n)
+    #n = Int(L ÷ dx)
+    #lrs = LatticeReactionSystem(model, n)
+    n = Catalyst.num_verts(lrs)
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
@@ -482,14 +484,5 @@ struct timepoint end
 
 end
 
-struct diffusion_system
-    domain_size
-    n
-    species
-    parameters
-end
-
-macro diffusion_system(domain_size, ex)
-    (ex.head == :block) || error()
 
 end

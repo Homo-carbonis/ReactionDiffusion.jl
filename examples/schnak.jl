@@ -2,14 +2,13 @@ using ReactionDiffusion
 
 include("../examples/Schnakenberg.jl")
 
-
 model = Schnakenburg.model
 params = Schnakenburg.params
 
 turing_params = returnTuringParams(model, params, batch_size=2);
 param1 = get_params(model, turing_params[4])
 
-u,t= simulate(model,param1)
+u,t= simulate(model,param1, Schnakenburg.lrs)
 
 U_final = u[:,1,end]
 dynamicRange = maximum(U_final)/minimum(U_final) 

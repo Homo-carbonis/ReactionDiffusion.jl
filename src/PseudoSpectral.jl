@@ -35,6 +35,7 @@ function build_r!(lrs, plan!)
     sps = species(lrs)
     p = parameters(lrs)
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
+    p = get_symbols(rhs, p) # Fix issue with symbol identity.
 
     @variables u[1:n, 1:m]
 
@@ -63,6 +64,8 @@ function build_d!(lrs, L=2pi)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
     p = parameters(lrs)
+    p = get_symbols(getproperty.(Catalyst.spatial_reactions(lrs), :rate), p) # Fix issue with symbol identity.
+
     dps = diffusion_parameters(lrs)
     k = 0:n-1
     h = L / (n-1)
@@ -92,6 +95,22 @@ function diffusion_parameters(lrs::LatticeReactionSystem)
     D
 end
 
+
+# For some reason the variables in `parameters(lrs)`` and
+# `assemble_oderhs(Catalyst.reactionsystem(lrs), species(lrs))` are different
+# if lrs is constructed in a different module to where the parameters are
+# created. Hence the need for this function to match them up again."
+function get_symbols(expr, symbols)
+    vars = union(Symbolics.get_variables.(expr)...)
+    symbols_ = []
+    for s in symbols
+        name = Symbolics.getname(s)
+        i = findfirst(v -> Symbolics.getname(v) == name, vars)
+        var = isnothing(i) ? s : vars[i] 
+        push!(symbols_, var)
+    end
+    symbols_
+end
 
 end
 
