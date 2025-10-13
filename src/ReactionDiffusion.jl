@@ -4,10 +4,16 @@ include("PseudoSpectral.jl")
 using .PseudoSpectral
 using Catalyst, Symbolics, DifferentialEquations, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase
 
+# Methods and constructors to be extended:
+import Random.seed!
+import ModelingToolkit.ODESystem
+import Catalyst.LatticeReactionSystem
 
-export returnTuringParams, model_parameters, screen_values, get_params, get_param, simulate
-export @reaction_network, @transport_reaction, LatticeReactionSystem, CartesianGrid # Re-export Catalyst interface.
-export @transport_reactions # Extend Catalyst interface.
+export Model, species,parameters,reaction_parameters, diffusion_parameters,
+    num_species, num_params, num_reaction_params, num_diffusion_params,
+    domain_size, initial_condition, noise
+export returnTuringParams, get_params, get_param, simulate
+export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export endpoint, timepoint
 
 mutable struct save_turing
@@ -22,18 +28,57 @@ mutable struct save_turing
     idx_turing::Int64
 end
 
-
+"Contains all information about the model which is independent of the parameter values and method of solution."
 struct Model
     reaction
     diffusion
-    domain_size
+    domain_size::Float64 # TODO: move to catalyst parameters.
+    initial_condition
     initial_noise
     seed
 end
 
-function Model(reaction, diffusion; domain_size=1.0, initial_noise=0.01, seed=nothing)
+function Model(reaction, diffusion; domain_size=1.0, initial_condition=Dict(), initial_noise=0.01, seed=nothing)
     seed = something(seed, rand(Int))
-    Model(reaction, diffusion, domain_size, initial_noise, seed)
+    Model(reaction, diffusion, domain_size, Dict(initial_condition), initial_noise, seed)
+end
+
+# Model getters
+species(model::Model) = Catalyst.species(model.reaction)
+parameters(model::Model) = [reaction_parameters(model); diffusion_parameters(model)]
+reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
+diffusion_parameters(model::Model) = getproperty.(model.diffusion, :rate)
+function reaction_parameters(model::Model, params)
+    rs = nameof.(reaction_parameters(model))
+    filter(((k,v),) -> k in rs, params)
+end
+function diffusion_parameters(model::Model, params)
+    rs = nameof.(diffusion_parameters(model))
+    filter(((k,v),) -> k in rs, params)
+end
+num_species(model::Model) = numspecies(model.reaction)
+num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
+num_reaction_params(model::Model) = numparams(model.reaction)
+num_diffusion_params(model::Model) = length(model.diffusion)
+
+domain_size(model::Model) = model.domain_size
+initial_condition(model::Model) = model.initial_condition
+noise(model::Model) = model.initial_noise
+reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
+diffusion_parameter_vector(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
+initial_condition_vector(model::Model, default=1.0) = get_vector(initial_condition(model), getproperty.(species(model), :f), default)
+ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
+Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
+
+Random.seed!(model::Model) = Random.seed!(model.seed)
+
+function get_vector(dict, symbols, default)
+    v = Vector{typeof(default)}(undef,0)
+    for s in symbols
+        val = get(dict, nameof(s), default)
+        push!(v, val)
+    end
+    v
 end
 
 const nq = 100
@@ -156,69 +201,10 @@ For a given `model` and a *single* pattern-forming parameter set, `turing_param`
 - `initial_noise = 0.01`: the magnitude of noise (normally distributed random numbers) added to the steady state values to define the initial conditions.
 """
 function get_params(model, turing_param)
-    if length(turing_param.wavelength) > 1
-        error("Please input only a single parameter set, not multiple (e.g., turing_params[1] instead of turing_params)")
-    else
-        param = model_parameters()
-        param.reaction = Dict(zip(nameof.(vertex_parameters(model)), turing_param.reaction_params))
-        param.diffusion = Dict(zip(nameof.(edge_parameters(model)), turing_param.diffusion_constants))
-        param.domain_size = 3*turing_param.wavelength # default value
-        param.initial_condition = Dict(zip([nameof(s.f) for s in species(model)], turing_param.steady_state_values))
-        param.initial_noise = 0.01
-        param.random_seed = 0
-        return param
-    end
-end
-
-function returnParameterSets(model, params)
-    # read in parameters (ps), diffusion constants (ds), initial conditions (ics), domain sizes (ls), random seeds (seeds) and random noise (noise)
-    ps = Vector{Vector{Float64}}(undef,0)
-    for p in vertex_parameters(model) 
-        val = get(params.reaction, nameof(p), [0]) # default is 0
-        push!(ps,val)
-    end
-
-    ds = Vector{Vector{Float64}}(undef,0)
-    for p in edge_parameters(model)
-        val = get(params.diffusion, nameof(p), [1]) # default is 1
-        push!(ds, val)
-    end
-
-    ics = Vector{Vector{Float64}}(undef,0)
-    for s in species(model)
-        val = get(params.initial_condition, nameof(s.f), [1]) # default is 1
-        push!(ics, val)
-    end
-    seeds = Int64.(params.random_seed)
-    noise = params.initial_noise
-    ls = params.domain_size
-    return ps,ds,ics, ls, seeds, noise
-end
-
-function returnSingleParameter(model, params)
-    # read in parameters (ps), diffusion constants (ds), initial conditions (ics), domain sizes (ls), random seeds (seeds) and random noise (noise)
-    ps = Vector(undef,0)
-    for p in vertex_parameters(model) 
-        val = get(params.reaction, nameof(p), 0) # default is 0
-        push!(ps,val)
-    end
-
-    ds = Vector(undef,0)
-    for p in edge_parameters(model)
-        val = get(params.diffusion, nameof(p), 1) # default is 1
-        push!(ds, val)
-    end
-
-    ics = Vector(undef,0)
-    for s in species(model)
-        val = get(params.initial_condition, nameof(s.f), 1) # default is 1
-        push!(ics, val)
-    end
- 
-    seeds = Int64(params.random_seed)
-    noise = params.initial_noise
-    ls = params.domain_size
-    return ps,ds,ics, ls, seeds, noise
+    length(turing_param.wavelength) > 1 && error("Please input only a single parameter set, not multiple (e.g., turing_params[1] instead of turing_params)")
+    rs = Dict(zip(nameof.(reaction_parameters(model)), turing_param.reaction_params))
+    ds = Dict(zip(nameof.(diffusion_parameters(model)), turing_param.diffusion_constants))
+    merge(rs, ds)
 end
 
 
@@ -285,14 +271,16 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 
 """
 function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e-8, reltol=1e-6, tspan=1e4,ensemblealg=EnsembleThreads(),batch_size=1e4)
-
+    params = Dict(params)
     # read in parameters (ps), diffusion constants (ds), and initial conditions (ics)
-    ps,ds,ics, _, _, _ = returnParameterSets(model, params)
-    n_params = length(parameters(model))
-    n_species = length(unknowns(model))
+    ps = reaction_parameter_vector(model,params, [0.0])
+    ds = diffusion_parameter_vector(model, params, [1.0])
+    ics = initial_condition_vector(model, [1.0])
+    n_params = num_reaction_params(model)
+    n_species = num_species(model)
 
     # convert reaction network to ODESystem
-    odesys = convert(ODESystem, Catalyst.reactionsystem(model))
+    odesys = ODESystem(model)
 
     # build jacobian function
     jac = ModelingToolkit.generate_jacobian(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
@@ -381,11 +369,11 @@ function returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, p
 end
 
 
-
 function createIC(model, n)
-    Random.seed!(seed(model))
-    m = numspecies(model)
-    abs.(noise*randn(n, m) + 1)
+    seed!(model)
+    m = num_species(model)
+    σ = noise(model)
+    abs.(σ * randn(n, m) .+ initial_condition_vector(model)')
 end
 
 """
@@ -406,13 +394,14 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
  
 """
 function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
-    n = Int(model.domain_size ÷ dx)
-    lattice = CartesianGrid(n)
-    lrs = LatticeReactionSystem(model.reaction, model.diffusion, lattice)
+    params = Dict(params)
+    L = model.domain_size
+    n = Int(L ÷ dx)
+    lrs = LatticeReactionSystem(model, n)
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
-        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, domain_size, dt)
+        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L, dt)
         #prob = SteadyStateProblem(prob)
         #sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
         steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-6, terminate!)
@@ -421,33 +410,20 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
         t = sol.t
     elseif discretisation == :finitedifference
         alg = something(alg, FBDF())
-        sps = species(model)
+        sps = Catalyst.species(lrs)
         U0 = Dict(zip(sps, eachcol(u0)))
-        n = Catalyst.num_verts(model)
-        d = Dict(s => d*n*2pi/domain_size for (s,d) in params.diffusion)
-        p = merge(params.reaction, d)
-        prob = ODEProblem(model,U0,tspan,p;reltol=reltol,abstol=abstol)
+        n = Catalyst.num_verts(lrs)
+        d = Dict(s => d*n*2pi/L for (s,d) in diffusion_parameters(model,params))
+        p = merge(reaction_parameters(model, params), d)
+        prob = ODEProblem(lrs,U0,tspan,p;reltol=reltol,abstol=abstol)
         prob = SteadyStateProblem(prob)
         sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
         # Reshape solution into matrix of dimensions: n_verts x n_species x n_time_steps.
-        u = reshape(stack(stack(lat_getu(sol.original,nameof(s.f),model)) for s in sps), n, length(sps), length(sol.original))
+        u = reshape(stack(stack(lat_getu(sol.original,nameof(s.f),lrs)) for s in sps), n, length(sps), length(sol.original))
         t = sol.original.t
     end
     (u,t)
 end
-
-
-
-macro transport_reactions(ex)
-    dx = gensym(dx)
-    Expr(:block,
-        :(@parameters $dx),
-        (:(@transport_reaction $p/$dx $s) for (p,s) in ex.args)...)
-end
-
-
-        
-
 
 
 struct endpoint end
@@ -457,7 +433,7 @@ struct endpoint end
     pattern = u[:,:,end]
     x = range(0,1, length = size(pattern,1))
     labels = []
-    for state in unknowns(model)
+    for state in species(model)
         push!(labels,chop(string(state), head=0,tail=3))
     end
 
@@ -486,7 +462,7 @@ struct timepoint end
 
     x = range(0,1, length = size(u,1))    
     labels = []
-    for state in unknowns(model)
+    for state in species(model)
         push!(labels,chop(string(state), head=0,tail=3))
     end
     labels = reshape(labels,1,length(labels))
@@ -506,5 +482,14 @@ struct timepoint end
 
 end
 
+struct diffusion_system
+    domain_size
+    n
+    species
+    parameters
+end
+
+macro diffusion_system(domain_size, ex)
+    (ex.head == :block) || error()
 
 end

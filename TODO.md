@@ -1,6 +1,12 @@
 - Improve params interface. Just pass single Dict/vect of pairs, containing all params.
+- Add spatial macro 
 - Incorporate benchmark code
 - Add interactive Makie plots
 - Verify spectral solutions
+- Add tune dx,dt function
+- Add ICs, sources, spatial variation.
+- Filter syntax for parameter space searches.
 - Use features of EnsembleProblem to search for parameters.
 - Continue port to GPU
+- Restructure and expand testing.
+- Reconsider use of Catalyst spatial types if not using Catalyst's discretisation.

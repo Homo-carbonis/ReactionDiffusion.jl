@@ -85,12 +85,9 @@ end
 function diffusion_parameters(lrs::LatticeReactionSystem)
     sps = species(lrs)
     D::Vector{Num} = zeros(length(sps))
-    srs = Catalyst.spatial_reactions(lrs)
-    keys = getfield.(srs, :species)
-    vals = getfield.(srs, :rate)
-    for (k,v) in zip(keys,vals)
-        i = findfirst(u -> u===k, sps)
-        D[i] = v
+    for r in Catalyst.spatial_reactions(lrs)
+        i = findfirst(u -> u.f === r.species.f, sps)
+        D[i] = r.rate
     end
     D
 end
