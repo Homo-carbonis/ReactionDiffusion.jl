@@ -15,8 +15,7 @@ diffusion = [
 ]
 
 model = Model(reaction, diffusion)
-using Catalyst
-lrs = LatticeReactionSystem(reaction,diffusion, CartesianGrid(100))
+
 params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
 
 end

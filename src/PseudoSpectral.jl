@@ -4,7 +4,6 @@ export pseudospectral_problem
 
 using DifferentialEquations, FFTW, Symbolics, Catalyst
 
-
 function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
     p = make_params(lrs; p...)
     u0 = copy(u0)
@@ -24,6 +23,7 @@ function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
         plan! * u
         u
     end
+    @show p, u0
     prob, transform
 end
 
@@ -35,7 +35,6 @@ function build_r!(lrs, plan!)
     sps = species(lrs)
     p = parameters(lrs)
     rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-    p = get_symbols(rhs, p) # Fix issue with symbol identity.
 
     @variables u[1:n, 1:m]
 
@@ -64,11 +63,10 @@ function build_d!(lrs, L=2pi)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
     p = parameters(lrs)
-    p = get_symbols(getproperty.(Catalyst.spatial_reactions(lrs), :rate), p) # Fix issue with symbol identity.
 
     dps = diffusion_parameters(lrs)
     k = 0:n-1
-    h = L / (n-1)
+    h = 2pi*L / ((n-1))
     # Correction from -D(kh)^2 for the discrete transform.
     λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps])
     (f,f!) = Symbolics.build_function(λ, p; expression=Val{false})
@@ -95,22 +93,6 @@ function diffusion_parameters(lrs::LatticeReactionSystem)
     D
 end
 
-
-# For some reason the variables in `parameters(lrs)`` and
-# `assemble_oderhs(Catalyst.reactionsystem(lrs), species(lrs))` are different
-# if lrs is constructed in a different module to where the parameters are
-# created. Hence the need for this function to match them up again."
-function get_symbols(expr, symbols)
-    vars = union(Symbolics.get_variables.(expr)...)
-    symbols_ = []
-    for s in symbols
-        name = Symbolics.getname(s)
-        i = findfirst(v -> Symbolics.getname(v) == name, vars)
-        var = isnothing(i) ? s : vars[i] 
-        push!(symbols_, var)
-    end
-    symbols_
-end
 
 end
 

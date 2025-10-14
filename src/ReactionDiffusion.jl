@@ -66,7 +66,7 @@ initial_condition(model::Model) = model.initial_condition
 noise(model::Model) = model.initial_noise
 reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
 diffusion_parameter_vector(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
-initial_condition_vector(model::Model, default=1.0) = get_vector(initial_condition(model), getproperty.(species(model), :f), default)
+initial_condition_vector(model::Model, default=0.0) = get_vector(initial_condition(model), getproperty.(species(model), :f), default)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
 Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
 
@@ -394,19 +394,16 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
  
 """
 #tmp lrs var
-function simulate(model,params, lrs; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
     params = Dict(params)
     L = model.domain_size
-    #n = Int(L ÷ dx)
-    #lrs = LatticeReactionSystem(model, n)
-    n = Catalyst.num_verts(lrs)
+    n = Int(L ÷ dx)
+    lrs = LatticeReactionSystem(model, n)
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
         prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L, dt)
-        #prob = SteadyStateProblem(prob)
-        #sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
-        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-6, terminate!)
+        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= abstol/2, terminate!)
         sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
         u = stack(transform(u) for u in sol.u)
         t = sol.t
@@ -415,7 +412,7 @@ function simulate(model,params, lrs; tspan=Inf, discretisation=:pseudospectral, 
         sps = Catalyst.species(lrs)
         U0 = Dict(zip(sps, eachcol(u0)))
         n = Catalyst.num_verts(lrs)
-        d = Dict(s => d*n*2pi/L for (s,d) in diffusion_parameters(model,params))
+        d = Dict(s => d*n/L for (s,d) in diffusion_parameters(model,params))
         p = merge(reaction_parameters(model, params), d)
         prob = ODEProblem(lrs,U0,tspan,p;reltol=reltol,abstol=abstol)
         prob = SteadyStateProblem(prob)
@@ -452,7 +449,6 @@ end
 
 struct timepoint end
 
-# Not yet working
 @recipe function plot(::timepoint, model, u, t)
     if t > 1 || t < 0
         error("Time should be between 0 and 1, representing first and last simulation timepoints respectively)")
