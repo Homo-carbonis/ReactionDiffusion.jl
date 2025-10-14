@@ -4,6 +4,8 @@ export pseudospectral_problem
 
 using DifferentialEquations, FFTW, Symbolics, Catalyst
 
+"Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
+Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
     p = make_params(lrs; p...)
     u0 = copy(u0)
@@ -23,7 +25,6 @@ function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
         plan! * u
         u
     end
-    @show p, u0
     prob, transform
 end
 
@@ -59,16 +60,17 @@ function build_r!(lrs, plan!)
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(lrs, L=2pi)
+function build_d!(lrs, L)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
     p = parameters(lrs)
 
     dps = diffusion_parameters(lrs)
     k = 0:n-1
-    h = 2pi*L / ((n-1))
-    # Correction from -D(kh)^2 for the discrete transform.
+    h = L / (n-1)
+    # Correction from -D(k/2pi h)^2 for the discrete transform.
     λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps])
+
     (f,f!) = Symbolics.build_function(λ, p; expression=Val{false})
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ,p[1:end-1])

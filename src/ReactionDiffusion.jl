@@ -38,7 +38,7 @@ struct Model
     seed
 end
 
-function Model(reaction, diffusion; domain_size=1.0, initial_condition=Dict(), initial_noise=0.01, seed=nothing)
+function Model(reaction, diffusion; domain_size=2pi, initial_condition=Dict(), initial_noise=0.01, seed=nothing)
     seed = something(seed, rand(Int))
     Model(reaction, diffusion, domain_size, Dict(initial_condition), initial_noise, seed)
 end
@@ -195,10 +195,7 @@ end
 """
     get_params(model, turing_param)
 
-For a given `model` and a *single* pattern-forming parameter set, `turing_param`, this function creates a  corresponding `model_parameters` variable. This sets, by default, the `model_parameters` fields:
-- `domain_size`: chosen to be 3x the computed pattern wavelength, i.e., `3*turing_param.wavelength`
-- `initial_condition`: chosen to be the computed steady state values, i.e.,  `turing_param.steady_state_values`
-- `initial_noise = 0.01`: the magnitude of noise (normally distributed random numbers) added to the steady state values to define the initial conditions.
+For a given `model` and a *single* pattern-forming parameter set, `turing_param`, this function creates a corresponding dictionary of parameter values.
 """
 function get_params(model, turing_param)
     length(turing_param.wavelength) > 1 && error("Please input only a single parameter set, not multiple (e.g., turing_params[1] instead of turing_params)")
@@ -257,7 +254,7 @@ Return a `save_turing` object of parameters that are predicted to be pattern for
 
 Required inputs:
 - `model`: specified via the `@reaction_network` macro
-- `params`: all reaction and diffusion parameters, in a `model_parameters` object
+- `params`: all reaction and diffusion parameters, in a Dict or collection of pairs.
 
 Optional inputs:
 - `batch_size`: the number of parameter sets to consider at once. Increasing/decreasing from the default value may improve speed.  
@@ -377,33 +374,34 @@ function createIC(model, n)
 end
 
 """
-    simulate(model,param; discretisation=PseudoSpectralProblem, alg=nothing, reltol=1e-6,abstol=1e-8, dt = 0.1, maxiters = 1e3, save_everystep = true)
+    simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
 
 Simulate `model` for a single parameter set `param`.
 
 Required inputs:
 - `model`: specified via the `@reaction_network` macro
-- `param`: all reaction and diffusion parameters, in a `model_parameters` object. *This must be a single parameter set only* 
+- `param`: all reaction and diffusion parameters, in a Dict or collection of pairs. *This must be a single parameter set only* 
 
 Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
 - `maxiters`: maximum number of iterations to reach steady state (otherwise simulation terminates)
 - `alg`: solver algorithm
 - `abstol` and `reltol`: tolerance levels of solvers
-- `dt`: initial value for timestep
-- `save_everystep`: controls whether all timepoints are saved, defaults to `true`
- 
+- `dt`: value for timestep
+
+- `dx`: distance between points in spatial discretisation.
 """
 #tmp lrs var
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=0.01, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
     params = Dict(params)
     L = model.domain_size
     n = Int(L ÷ dx)
+    @show n
     lrs = LatticeReactionSystem(model, n)
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
         prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L, dt)
-        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= abstol/2, terminate!)
+        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-5, terminate!)
         sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
         u = stack(transform(u) for u in sol.u)
         t = sol.t
@@ -412,14 +410,17 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
         sps = Catalyst.species(lrs)
         U0 = Dict(zip(sps, eachcol(u0)))
         n = Catalyst.num_verts(lrs)
-        d = Dict(s => d*n/L for (s,d) in diffusion_parameters(model,params))
+        h = L/(n-1)
+        d = Dict(s => d/h^2 for (s,d) in diffusion_parameters(model,params))
         p = merge(reaction_parameters(model, params), d)
         prob = ODEProblem(lrs,U0,tspan,p;reltol=reltol,abstol=abstol)
         prob = SteadyStateProblem(prob)
         sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
         # Reshape solution into matrix of dimensions: n_verts x n_species x n_time_steps.
-        u = reshape(stack(stack(lat_getu(sol.original,nameof(s.f),lrs)) for s in sps), n, length(sps), length(sol.original))
+        u=permutedims(stack(stack(lat_getu(sol.original, s, lrs)) for s in Catalyst.species(lrs)), (1,3,2))
         t = sol.original.t
+    else
+        error("Supported discretisation methods are :pseudospectral and :finitedifference.")
     end
     (u,t)
 end
