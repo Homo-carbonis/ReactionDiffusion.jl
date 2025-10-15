@@ -391,17 +391,16 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `dx`: distance between points in spatial discretisation.
 """
 #tmp lrs var
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.001, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.001, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6)
     params = Dict(params)
     L = model.domain_size
     n = Int(L ÷ dx)
-    @show n
     lrs = LatticeReactionSystem(model, n)
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
         prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L, dt)
-        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 1e-5, terminate!)
+        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 5e-6, terminate!)
         sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
         u = stack(transform(u) for u in sol.u)
         t = sol.t
