@@ -16,7 +16,7 @@ include("../examples/Schnakenberg.jl")
     @test b == [1.0; 1.0; 2.0; 2.0]
 
     param1 = get_params(model, turing_params[4])
-    n_periods = domain_size(model) / turing_params[4].wavelength
+    expected_periods = domain_size(model) / turing_params[4].wavelength
     @testset "Simulate using $discretisation" for discretisation in [:finitedifference, :pseudospectral]
         u,t= simulate(model,param1; discretisation=discretisation)
 
@@ -29,6 +29,6 @@ include("../examples/Schnakenberg.jl")
         #       note:   we give a range for both test values as we are using random initial conditions, and thus variations are to be expected
         #               (even when setting seeds, it's not clear that Pkg updates to random will conserve values).
         @test dynamicRange > 1.5 && dynamicRange < 4
-        @test halfMaxSignChanges > n_periods && halfMaxSignChanges <= 2*n_periods
+        @test halfMaxSignChanges > expected_periods && halfMaxSignChanges <= 2*expected_periods
     end
 end
