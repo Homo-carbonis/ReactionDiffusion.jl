@@ -14,35 +14,32 @@ Optionally, we can manually change the parameters too:
 param1.reaction["n1"] = 10
 ```
 
-The size of the 1D domain over which the simulation is performed is chosen according to the `turing_params.wavelength` value by default, although you can change this manually too:
-
-```julia
-param1.domain_size = 100
-```
-
 To simulate the script, you then simply run:
 
 ```julia
-sol = simulate(model,param1)
+u,t = simulate(model,param1)
 ```
+This will return the solution as an array containg the concentration values and a vector of corresponding time points. The first dimension of u corresponds to points in space, the second to reactant and the third to points in time.
+
+For instance if `species(model) == [GDF5, NOG, COMPLEX, pSMAD]`, then u[1,3,end] is the concetration of `COMPLEX` at the left-most end of the domain at the conclusion of the simulation, and t[end] will be the time at which this occurs.
 
 *Note: as with all Julia functions, there is a significant compilation time associated with the first time you run this function. This overhead time will not be present if you re-run the simulation e.g., for different parameters*
 
-The resulting PDE dynamics are represented by the solution object `sol` from [DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). To visualize the results, you can use a variety of plotting packages (e.g., Makie.jl, Plots.jl). We provide simple helper functions for the Plots.jl package.
+To visualize the results, you can use a variety of plotting packages (e.g., Makie.jl, Plots.jl). We provide simple helper functions for the Plots.jl package.
 
 To visualize the final pattern (once steady state has been reached), use: `endpoint()` 
 
 ```julia
 using Plots
-plot(endpoint(),model,sol)
+plot(endpoint(),model,u)
 ```
 
 To visualize intermediate timepoints (e.g., for making a movie of the dynamics), use `timepoint()`, e.g.,:
 
 ```julia
 @gif for t in 0.0:0.01:1
-    plot(timepoint(),model,sol,t)
+    plot(timepoint(),model,u,t)
 end fps=20
 ```
 
-Here, for example, `plot(timepoint(),model,sol,0.1)` plots the solution at a time that is 10% through the simulation. 
+Here, for example, `plot(timepoint(),model,u,0.1)` plots the solution at a time that is 10% through the simulation. 
