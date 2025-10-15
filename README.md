@@ -28,7 +28,7 @@ We begin by specifying the reaction-diffusion dynamics via the intuitive syntax 
 ```julia
 using ReactionDiffusion
 
-model = @reaction_network begin
+reaction = @reaction_network begin
     # complex formation
     (k₊, k₋),               GDF5 + NOG <--> COMPLEX 
     # degradation
@@ -41,38 +41,37 @@ model = @reaction_network begin
     # signalling
     μ₃*GDF5,                ∅ --> pSMAD
 end  
+
+diffusion = [
+    (@transport_reaction D₁ GDF5),
+    (@transport_reaction D₂ NOG),
+    (@transport_reaction D₃ COMPLEX)
+]
+
+model = Model(reaction,diffusion)
 ```
 
 #### Step 2: Specify value(s) for each parameter
 
 
 ```julia
-params = model_parameters()
-
-# constant parameters
-params.reaction["δ₃"] = [1.0]
-params.reaction["μ₁"] = [1.0]
-params.reaction["μ₃"] = [1.0]
-params.reaction["n₁"] = [8]
-params.reaction["n₂"] = [2]
-
-# varying parameters
-num_params = 5
-params.reaction["δ₁"] = screen_values(min = 0.1,max = 10, number=num_params)
-params.reaction["δ₂"] = screen_values(min = 0.1,max = 10,number=num_params)
-params.reaction["μ₂"] = screen_values(min = 0.1,max = 10, number=num_params)
-params.reaction["k₊"] = screen_values(min = 10.0,max = 100.0, number=num_params)
-params.reaction["k₋"] = screen_values(min = 10.0,max = 100.0, number=num_params)
-params.reaction["K₁"] = screen_values(min = 0.01,max = 1,number=num_params)
-params.reaction["K₂"] = screen_values(min = 0.01,max = 1, number=num_params)
-
-# diffusion coefficients
-params.diffusion = Dict(
-    "NOG"       => [1.0],
-    "GDF5"      => screen_values(min = 0.1,max = 30, number=10),
-    "COMPLEX"   => screen_values(min = 0.1,max = 30, number=10)
+params = (
+    :μ₁ => [1.0],
+    :μ₂ => range(0.1,10,5),
+    :k₊ => range(10,100, num_params),
+    :k₋ => range(10,100,num_params),
+    :μ₃ => [1.0],
+    :δ₁ => range(0.1,10,num_params),
+    :δ₂ => range(0.1,10,num_params),
+    :δ₃ => [1.0],
+    :K₁ => range(0.01,1.0,num_params),
+    :K₂ => range(0.01,1.0,num_params),
+    :n₁ => [8.0],
+    :n₂ => [2.0],
+    :D₁ => [1.0],
+    :D₂ => range(0.1,30,10.0),
+    :D₃ => range(0.1,30,10.0)
 )
-
 ```
 
 #### Step 3 (Optional): Perform automated Turing instability analysis to find pattern-forming parameter sets
@@ -107,11 +106,11 @@ We may then take a single parameter set and simulate its spatiotemporal dynamics
 param1 = get_params(model, turing_params[1000])
 
 # simulate the reaction-diffusion PDE
-sol = simulate(model,param1)
+u,t = simulate(model,param1)
 
 # visualize the resulting pattern
 using Plots
-plot(endpoint(),model,sol)
+plot(endpoint(),model,u)
 ```
 ![final pattern](docs/src/assets/final_pattern.svg)
 
@@ -120,7 +119,7 @@ We may also view the full spatiotemporal dynamics:
 
 ```julia
 @gif for t in 0.0:0.01:1
-    plot(timepoint(),model,sol,t)
+    plot(timepoint(),model,u,t)
 end fps=20
 ```
 ![dynamics](docs/src/assets/dynamics.gif)
