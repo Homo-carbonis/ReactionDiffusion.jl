@@ -40,29 +40,4 @@ params = (
     :D₂ => 1.0,
     :D₃ => 30.0
 )
-# constant parameters
-params.reaction["δ₃"] = [1.0]
-params.reaction["μ₁"] = [1.0]
-params.reaction["μ₃"] = [1.0]
-params.reaction["n₁"] = [8]
-params.reaction["n₂"] = [2]
-
-# varying parameters
-num_params = 5
-params.reaction["δ₁"] = screen_values(min = 0.1,max = 10, number=num_params)
-params.reaction["δ₂"] = screen_values(min = 0.1,max = 10,number=num_params)
-params.reaction["μ₂"] = screen_values(min = 0.1,max = 10, number=num_params)
-params.reaction["k₊"] = screen_values(min = 10.0,max = 100.0, number=num_params)
-params.reaction["k₋"] = screen_values(min = 10.0,max = 100.0, number=num_params)
-params.reaction["K₁"] = screen_values(min = 0.01,max = 1,number=num_params)
-params.reaction["K₂"] = screen_values(min = 0.01,max = 1, number=num_params)
-
-# diffusion coefficients
-params.diffusion = Dict(
-    "NOG"       => [1.0],
-    "GDF5"      => screen_values(min = 0.1,max = 30, number=10),
-    "COMPLEX"   => screen_values(min = 0.1,max = 30, number=10)
-)
-
-
 end
