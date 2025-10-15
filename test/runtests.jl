@@ -28,7 +28,7 @@ include("../examples/Schnakenberg.jl")
         # Test whether simulated PDE is 'sensible'; we evaluate the max/min value of the final pattern, and also the number of sign changes about the half maximum (both for U)
         #       note:   we give a range for both test values as we are using random initial conditions, and thus variations are to be expected
         #               (even when setting seeds, it's not clear that Pkg updates to random will conserve values).
-        @test dynamicRange > 1.5 && dynamicRange < 4
-        @test halfMaxSignChanges > expected_periods && halfMaxSignChanges <= 2*expected_periods
+        @test 1.5 < dynamicRange < 4
+        @test expected_periods < halfMaxSignChanges <= 2*expected_periods
     end
 end
