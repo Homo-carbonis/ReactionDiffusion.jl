@@ -6,7 +6,7 @@ using DifferentialEquations, FFTW, Symbolics, Catalyst
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
+function pseudospectral_problem(lrs, u0, tspan, p, L)
     p = make_params(lrs; p...)
     u0 = copy(u0)
     n = size(u0,1)
@@ -19,7 +19,7 @@ function pseudospectral_problem(lrs, u0, tspan, p, L, dt; kwargs...)
     R = build_r!(lrs,plan!)
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
-    prob = SplitODEProblem(D, R, vec(u0),tspan, (ps...,U), dt=dt; kwargs...)
+    prob = SplitODEProblem(D, R, vec(u0), tspan, (ps...,U))
     function transform(u)
         u = reshape(copy(u),n,m)
         plan! * u

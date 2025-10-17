@@ -391,7 +391,7 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `dx`: distance between points in spatial discretisation.
 """
 #tmp lrs var
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.001, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6)
+function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6)
     params = Dict(params)
     L = model.domain_size
     n = Int(L ÷ dx)
@@ -399,9 +399,14 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
-        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L, dt)
-        steadystate = DiscreteCallback((u,t,integrator) -> maximum(abs.(u-integrator.uprev)) <= 5e-6, terminate!)
-        sol = solve(prob, alg; callback=steadystate, maxiters=maxiters)
+        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L)
+        steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
+        while true
+            sol = solve(prob, alg; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol, progress=true)
+            SciMLBase.successful_retcode(sol) && break
+            println("Retrying with dt set to $(dt/2)")
+            dt = dt/2
+        end
         u = stack(transform(u) for u in sol.u)
         t = sol.t
     elseif discretisation == :finitedifference
@@ -412,9 +417,9 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
         h = L/(n-1)
         d = Dict(s => d/h^2 for (s,d) in diffusion_parameters(model,params))
         p = merge(reaction_parameters(model, params), d)
-        prob = ODEProblem(lrs,U0,tspan,p;reltol=reltol,abstol=abstol)
+        prob = ODEProblem(lrs,U0,tspan,p)
         prob = SteadyStateProblem(prob)
-        sol = solve(prob, DynamicSS(alg); maxiters=maxiters)
+        sol = solve(prob, DynamicSS(alg); maxiters=maxiters, reltol=reltol, abstol=abstol, progress=true)
         # Reshape solution into matrix of dimensions: n_verts x n_species x n_time_steps.
         u=permutedims(stack(stack(lat_getu(sol.original, s, lrs)) for s in Catalyst.species(lrs)), (1,3,2))
         t = sol.original.t
