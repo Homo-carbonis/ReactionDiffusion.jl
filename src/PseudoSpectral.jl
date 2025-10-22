@@ -2,7 +2,7 @@ module PseudoSpectral
 
 export pseudospectral_problem
 
-using DifferentialEquations, FFTW, Symbolics, Catalyst
+using SciMLBase, FFTW, Symbolics, Catalyst
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."

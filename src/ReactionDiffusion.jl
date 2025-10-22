@@ -2,7 +2,7 @@ module ReactionDiffusion
 
 include("PseudoSpectral.jl")
 using .PseudoSpectral
-using Catalyst, Symbolics, DifferentialEquations, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase
+using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqBDF, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase
 
 # Methods and constructors to be extended:
 import Random.seed!
