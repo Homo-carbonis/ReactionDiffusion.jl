@@ -85,7 +85,6 @@ function make_params(lrs; params...)
     U = Matrix{Float64}(undef, n, m) # allocate working memory for computing dct.
     symbols = nameof.(parameters(lrs))
     p = Tuple(params[k] for k in symbols)
-    U = similar(u0) 
     (p...,U)
 end
 

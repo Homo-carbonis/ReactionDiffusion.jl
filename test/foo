@@ -1,0 +1,16 @@
+using ReactionDiffusion
+include("../examples/Schnakenberg.jl")
+
+
+model = Schnakenberg.model
+params = Schnakenberg.params
+
+model = Schnakenberg.model
+params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
+expected_periods = 12
+function f(u)
+    u = u[:,1]
+    expected_periods/2 < num_periods(u) <= expected_periods
+end
+
+ps = filter_params(f,model,params)

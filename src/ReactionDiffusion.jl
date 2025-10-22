@@ -12,7 +12,7 @@ import Catalyst.LatticeReactionSystem
 export Model, species,parameters,reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_condition, noise
-export returnTuringParams, get_params, get_param, simulate
+export returnTuringParams, get_params, get_param, simulate, filter_params
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export endpoint, timepoint
 
@@ -71,6 +71,10 @@ ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
 Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
+
+"Return a vector of dictionaries containing the cartesian product of the values of `d`."
+product(d::Dict) = vec([Dict(zip(keys(d), vals)) for vals in Iterators.product(values(d)...)])
+
 
 function get_vector(dict, symbols, default)
     v = Vector{typeof(default)}(undef,0)
@@ -391,7 +395,7 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `dx`: distance between points in spatial discretisation.
 """
 #tmp lrs var
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6)
+function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
     params = Dict(params)
     L = model.domain_size
     n = Int(L ÷ dx)
@@ -399,13 +403,15 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
     u0 = createIC(model, n)
     if discretisation == :pseudospectral
         alg = something(alg, ETDRK4())
-        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L)
         steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
+        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L; callback=steadystate, maxiters=maxiters, abstol=abstol, reltol=reltol)
         while true
-            sol = solve(prob, alg; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol, progress=true)
+            iszero(maxrepeats) && error("Solution failed with parameters: $(p)")
+            sol = solve(prob, alg; dt=dt, progress=true)
             SciMLBase.successful_retcode(sol) && break
             println("Retrying with dt set to $(dt/2)")
             dt = dt/2
+            maxrepeats = maxrepeats - 1
         end
         u = stack(transform(u) for u in sol.u)
         t = sol.t
@@ -427,6 +433,37 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
         error("Supported discretisation methods are :pseudospectral and :finitedifference.")
     end
     (u,t)
+end
+
+
+function filter_params(f, model, params; tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
+    params = product(Dict(params))
+    L = model.domain_size
+    n = Int(L ÷ dx)
+    lrs = LatticeReactionSystem(model, n)
+    u0 = createIC(model, n)
+    alg = something(alg, ETDRK4())
+    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
+    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1], L; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+
+    function output_func(sol,i)
+        u = transform(sol.u[end])
+        pass = f(u)
+        repeat = !SciMLBase.successful_retcode(sol)
+        (pass, repeat)
+    end
+        
+    function prob_func(prob, i, repeat)
+        p = params[i]
+        repeat > maxrepeats && error("Solution failed with parameters: $(p)")
+        prob = remake_params(prob, lrs, p)
+        remake(prob; dt=dt/2^(repeat-1)) # halve dt if solve was unsuccessful.
+    end
+
+    ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
+ 
+    sim = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
+    params[sim]
 end
 
 
