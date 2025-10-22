@@ -1,6 +1,6 @@
 # Example demonstrating the Schnakenburg model (a well-known reaction-diffusion system with analytical results for its Turing stability region)
 
-module Schnakenburg
+module Schnakenberg
 using ReactionDiffusion
 
 reaction = @reaction_network begin
@@ -16,7 +16,6 @@ diffusion = [
 ]
 
 model = Model(reaction, diffusion; domain_size=100.0)
-
-params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
+params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0)
 
 end

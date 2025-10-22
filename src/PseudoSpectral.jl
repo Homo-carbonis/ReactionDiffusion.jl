@@ -1,25 +1,23 @@
 module PseudoSpectral
 
-export pseudospectral_problem
+export pseudospectral_problem, remake_params
 
 using SciMLBase, FFTW, Symbolics, Catalyst
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(lrs, u0, tspan, p, L)
-    p = make_params(lrs; p...)
+function pseudospectral_problem(lrs, u0, tspan, p, L; kwargs...)
+    ps = make_params(lrs; p...)
     u0 = copy(u0)
     n = size(u0,1)
     m = size(u0,2)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
-    U = similar(u0)
-    ps = (p...,U)
     D = build_d!(lrs,L)
     R = build_r!(lrs,plan!)
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
-    prob = SplitODEProblem(D, R, vec(u0), tspan, (ps...,U))
+    prob = SplitODEProblem(D, R, vec(u0), tspan, ps; kwargs...)
     function transform(u)
         u = reshape(copy(u),n,m)
         plan! * u
@@ -27,6 +25,8 @@ function pseudospectral_problem(lrs, u0, tspan, p, L)
     end
     prob, transform
 end
+
+remake_params(prob, lrs, p) = remake(prob; p=make_params(lrs; p...))
 
 
 "Build function for the reaction component."
@@ -78,10 +78,15 @@ function build_d!(lrs, L)
 end
 
 
-"Build a tuple of parameters from the given keyword values in the same order as `parameters(network)`"
-function make_params(network; params...)
-    symbols = nameof.(parameters(network))
-    Tuple(params[k] for k in symbols)
+"Build a tuple of parameters from the given keyword values in the same order as `parameters(lrs)`"
+function make_params(lrs; params...)
+    n = Catalyst.num_verts(lrs)
+    m = Catalyst.num_species(lrs)
+    U = Matrix{Float64}(undef, n, m) # allocate working memory for computing dct.
+    symbols = nameof.(parameters(lrs))
+    p = Tuple(params[k] for k in symbols)
+    U = similar(u0) 
+    (p...,U)
 end
 
 "Return diffusion rates for `lrs` in the same order as `species(lrs)` with a default of 0"
