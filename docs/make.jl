@@ -18,7 +18,7 @@ makedocs(sitename="ReactionDiffusion.jl",
     doctest =false,
     clean=true,
     modules=[ReactionDiffusion],
-
+    checkdocs=:exports
 )
 
 deploydocs(repo = "github.com/hiscocklab/ReactionDiffusion.jl.git";
