@@ -12,7 +12,7 @@ import Catalyst.LatticeReactionSystem
 export Model, species,parameters,reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_condition, noise
-export returnTuringParams, get_params, get_param, simulate, filter_params
+export returnTuringParams, get_params, get_param, simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export endpoint, timepoint
 
@@ -72,8 +72,8 @@ Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.re
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
 
-"Return a vector of dictionaries containing the cartesian product of the values of `d`."
-product(d::Dict) = vec([Dict(zip(keys(d), vals)) for vals in Iterators.product(values(d)...)])
+"Return a vector of dictionaries containing the cartesian product of the given values."
+product(;kwargs...) = vec([Dict(zip(keys(kwargs), vals)) for vals in Iterators.product(values(kwargs)...)])
 
 
 function get_vector(dict, symbols, default)
@@ -384,7 +384,7 @@ Simulate `model` for a single parameter set `param`.
 
 Required inputs:
 - `model`: `Model`` object containg the system to be simulated.
-- `param`: all reaction and diffusion parameters, in a Dict or collection of pairs. *This must be a single parameter set only* 
+- `param`: all reaction and diffusion parameters, in a Dict or collection of pairs. 
 
 Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
 - `maxiters`: maximum number of iterations to reach steady state (otherwise simulation terminates)
@@ -396,125 +396,93 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-#tmp lrs var
-function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
-    params = Dict(params)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
     L = model.domain_size
     n = Int(L ÷ dx)
+    # Ensure params is a vector of dicts.
+    if typeof(params) <: Vector
+        params = Dict.(params)
+        single=false
+    else
+        params = [Dict(params)]
+        single = true # Unpack vector at the end if we only have one parameter set.
+    end
+    # Evaluate any spatial function paramters over n values from 0 to 1.
+    for i in eachindex(params)
+        for (k,v) in params[i]
+            if typeof(v) <: Function
+                params[i][k] = v.(range(0.0,1.0,n))
+            end
+        end
+    end
+
     lrs = LatticeReactionSystem(model, n)
     u0 = createIC(model, n)
-    if discretisation == :pseudospectral
-        alg = something(alg, ETDRK4())
-        steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-        prob, transform = pseudospectral_problem(lrs, u0, tspan, params, L; callback=steadystate, maxiters=maxiters, abstol=abstol, reltol=reltol)
-        while true
-            iszero(maxrepeats) && error("Solution failed with parameters: $(p)")
-            sol = solve(prob, alg; dt=dt, progress=true)
-            SciMLBase.successful_retcode(sol) && break
-            println("Retrying with dt set to $(dt/2)")
-            dt = dt/2
-            maxrepeats = maxrepeats - 1
+    alg = something(alg, ETDRK4())
+    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
+    @show params[1]
+    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1], L; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+   
+    function output_func_(sol,i)
+        SciMLBase.successful_retcode(sol) || return (nothing, true) # Request rerun if solution failed.
+        if full_solution
+            t=sol.t
+            u = stack(transform(u) for u in sol.u)
+        else
+            t = sol.t[end]
+            u = transform(sol.u[end])
         end
-        u = stack(transform(u) for u in sol.u)
-        t = sol.t
-    elseif discretisation == :finitedifference
-        alg = something(alg, FBDF())
-        sps = Catalyst.species(lrs)
-        U0 = Dict(zip(sps, eachcol(u0)))
-        n = Catalyst.num_verts(lrs)
-        h = L/(n-1)
-        d = Dict(s => d/h^2 for (s,d) in diffusion_parameters(model,params))
-        p = merge(reaction_parameters(model, params), d)
-        prob = ODEProblem(lrs,U0,tspan,p)
-        prob = SteadyStateProblem(prob)
-        sol = solve(prob, DynamicSS(alg); maxiters=maxiters, reltol=reltol, abstol=abstol, progress=true)
-        # Reshape solution into matrix of dimensions: n_verts x n_species x n_time_steps.
-        u=permutedims(stack(stack(lat_getu(sol.original, s, lrs)) for s in Catalyst.species(lrs)), (1,3,2))
-        t = sol.original.t
-    else
-        error("Supported discretisation methods are :pseudospectral and :finitedifference.")
+        out = isnothing(output_func) ? (u,t) : output_func(u,t)
+        (out, false)
     end
-    (u,t)
+        
+    function prob_func(prob, i, repeat)
+        p = params[i]
+        if repeat == 1 
+            println("Simulating parameters $p.") #TODO format parameters nicely
+        elseif repeat <= maxrepeats
+            print("Retrying with ")
+        else
+            error("Aborting after $repeat attempts.")
+        end
+        dt=dt/2^(repeat-1) # halve dt if solve was unsuccessful.
+        println("dt=$dt.")
+        prob = remake_params(prob, lrs, p)
+        remake(prob; dt=dt) 
+    end
+
+    ensemble_prob = EnsembleProblem(prob; output_func=output_func_, prob_func=prob_func)
+ 
+    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
+    single ? sol[1] : sol
 end
 
 """
-    filter_params(f,model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+    filter_params(f,model,params; kwargs...)
 
 Return subset of `params` which satisfy the predicate `f(u)`.
 
-
-
 Required inputs:
-- `f(u)`: Takes a numverts × numspecies matrix representing a steady state of the system and returns true or false.
+- `f(u,t)`: Takes a matrix of solution values and time points and returns true or false. Input is either a single steady state value, or with `full_solution=true`, vectors with values for each time point.
 - `model`: `Model` object containg the system to be simulated.
-- `params`: Parameter set to be filtered. This can either be a vector of dictionaries each containing single parameters, or a single `Dict` or `Tuple{Pair}` with several values for each reactant, in which case the cartesian product is taken.
+- `params`: Parameter sets to be filtered. This should be a vector of dictionaries each containing a single parameter set.
 
-Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
-- `maxiters`: maximum number of iterations to reach steady state (otherwise simulation terminates)
-- `alg`: solver algorithm
-- `abstol` and `reltol`: tolerance levels of solvers
-- `dt`: value for timestep
-
-Additional Inputs
-- `dx`: distance between points in spatial discretisation.
-- `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
+- For `kwargs` see `simulate`.
 
 Example:
 Return parameters which produce a steady state less than 0.5.
-
 ```
 filter_params(model,params) do u
     maximum(u) < 0.5
 end
 ```
 """
-function filter_params(f, model, params; tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
-    T = typeof(params)
-    if T <: Tuple
-        params = product(Dict(params))
-    elseif T <: Dict
-        params = product(params)
-    elseif !(T <: Vector{Dict})
-        error("`params` must be either a dictionary/`Tuple{Pair}` or a vector of dictionaries")
-    end
-    L = model.domain_size
-    n = Int(L ÷ dx)
-    lrs = LatticeReactionSystem(model, n)
-    u0 = createIC(model, n)
-    alg = something(alg, ETDRK4())
-    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1], L; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
-
-    function output_func(sol,i)
-        u = transform(sol.u[end])
-        if SciMLBase.successful_retcode(sol)
-            pass = f(u)
-            repeat = false
-        else
-            pass = false
-            repeat = true
-        end 
-        @show (pass, repeat)
-        (pass, repeat)
-    end
-        
-    function prob_func(prob, i, repeat)
-        p = params[i]
-        println("i=$i, repeat=$repeat, params=$p")
-        repeat > maxrepeats && error("Solution unstable with parameters: $(p)")
-        prob = remake_params(prob, lrs, p)
-        remake(prob; dt=dt/2^(repeat-1)) # halve dt if solve was unsuccessful.
-    end
-
-    ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
- 
-    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
+function filter_params(f, model, params; kwargs...)
+    sol = simulate(model,params; output_func=f, kwargs...)
     params[sol.u]
 end
 
-
 struct endpoint end
-
 
 @recipe function plot(::endpoint, model, u)
     pattern = u[:,:,end]

@@ -29,27 +29,25 @@ end
     model = Schnakenberg.model
     params = Schnakenberg.params
     expected_periods = 12 # TODO: Write wavelength() function so we can compute this separately from turing params.
-    @testset "Simulate using $discretisation" for discretisation in [:finitedifference, :pseudospectral]
-        u,t = simulate(model, params; discretisation=discretisation)
-        u = u[:,1,end]
+    u,t = simulate(model, params)
+    u = u[:,1,end]
 
-        # Test whether simulated PDE is 'sensible'; we evaluate the max/min value of the final pattern, and also the number of sign changes about the half maximum (both for U)
-        #       note:   we give a range for both test values as we are using random initial conditions, and thus variations are to be expected
-        #               (even when setting seeds, it's not clear that Pkg updates to random will conserve values).
-        @test 1.5 < dynamic_range(u) < 4
-        @test expected_periods/2 < num_periods(u) <= expected_periods
-    end
+    # Test whether simulated PDE is 'sensible'; we evaluate the max/min value of the final pattern, and also the number of sign changes about the half maximum (both for U)
+    #       note:   we give a range for both test values as we are using random initial conditions, and thus variations are to be expected
+    #               (even when setting seeds, it's not clear that Pkg updates to random will conserve values).
+    @test 1.5 < dynamic_range(u) < 4
+    @test expected_periods/2 < num_periods(u) <= expected_periods
 end
 
 # TODO: Write a better test
 @testset "filter_params" begin
     model = Schnakenberg.model
-    params = (:a => [0.2,0.5,1000.0], :b =>[1.0,2.0,1000.0], :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
-    expected_periods = 18
+    params = product(a = [0.2,0.5,10.0], b = [1.0,2.0,10.0], γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
+    expected_periods = 12
 
-    filter_params(model,params) do u
+    ps = filter_params(model,params) do u,t
         isapprox(num_periods(u[:,1]), expected_periods; rtol=0.5)
     end
 
-    @test length(ps) == 7 
+    @test length(ps) == 6
 end
