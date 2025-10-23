@@ -2,7 +2,7 @@ module ReactionDiffusion
 
 include("PseudoSpectral.jl")
 using .PseudoSpectral
-using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqBDF, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase
+using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqBDF, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
 
 # Methods and constructors to be extended:
 import Random.seed!
@@ -362,7 +362,7 @@ function returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, p
     
     ensemble_prob = EnsembleProblem(prob,prob_func=prob_func)
 
-    sol = solve(ensemble_prob,maxiters=maxiters,alg,ensemblealg,callback=callback, trajectories=n_batch,verbose=false,abstol=abstol, reltol=reltol, save_everystep = false)
+    sol = solve(ensemble_prob,maxiters=maxiters,alg,ensemblealg,callback=callback, trajectories=n_batch,verbose=false,abstol=abstol, reltol=reltol, save_everystep = false, progress=true)
 
     # Determine whether the steady state undergoes a diffusion-driven instability
     return identifyTuring(sol, ds, jacobian)
@@ -383,7 +383,7 @@ end
 Simulate `model` for a single parameter set `param`.
 
 Required inputs:
-- `model`: specified via the `@reaction_network` macro
+- `model`: `Model`` object containg the system to be simulated.
 - `param`: all reaction and diffusion parameters, in a Dict or collection of pairs. *This must be a single parameter set only* 
 
 Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
@@ -392,7 +392,9 @@ Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml
 - `abstol` and `reltol`: tolerance levels of solvers
 - `dt`: value for timestep
 
+Additional Inputs
 - `dx`: distance between points in spatial discretisation.
+- `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
 #tmp lrs var
 function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
@@ -435,9 +437,46 @@ function simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=n
     (u,t)
 end
 
+"""
+    filter_params(f,model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
 
+Return subset of `params` which satisfy the predicate `f(u)`.
+
+
+
+Required inputs:
+- `f(u)`: Takes a numverts × numspecies matrix representing a steady state of the system and returns true or false.
+- `model`: `Model` object containg the system to be simulated.
+- `params`: Parameter set to be filtered. This can either be a vector of dictionaries each containing single parameters, or a single `Dict` or `Tuple{Pair}` with several values for each reactant, in which case the cartesian product is taken.
+
+Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
+- `maxiters`: maximum number of iterations to reach steady state (otherwise simulation terminates)
+- `alg`: solver algorithm
+- `abstol` and `reltol`: tolerance levels of solvers
+- `dt`: value for timestep
+
+Additional Inputs
+- `dx`: distance between points in spatial discretisation.
+- `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
+
+Example:
+Return parameters which produce a steady state less than 0.5.
+
+```
+filter_params(model,params) do u
+    maximum(u) < 0.5
+end
+```
+"""
 function filter_params(f, model, params; tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 8)
-    params = product(Dict(params))
+    T = typeof(params)
+    if T <: Tuple
+        params = product(Dict(params))
+    elseif T <: Dict
+        params = product(params)
+    elseif !(T <: Vector{Dict})
+        error("`params` must be either a dictionary/`Tuple{Pair}` or a vector of dictionaries")
+    end
     L = model.domain_size
     n = Int(L ÷ dx)
     lrs = LatticeReactionSystem(model, n)
@@ -448,22 +487,29 @@ function filter_params(f, model, params; tspan=Inf, alg=nothing, dt=0.1, dx=doma
 
     function output_func(sol,i)
         u = transform(sol.u[end])
-        pass = f(u)
-        repeat = !SciMLBase.successful_retcode(sol)
+        if SciMLBase.successful_retcode(sol)
+            pass = f(u)
+            repeat = false
+        else
+            pass = false
+            repeat = true
+        end 
+        @show (pass, repeat)
         (pass, repeat)
     end
         
     function prob_func(prob, i, repeat)
         p = params[i]
-        repeat > maxrepeats && error("Solution failed with parameters: $(p)")
+        println("i=$i, repeat=$repeat, params=$p")
+        repeat > maxrepeats && error("Solution unstable with parameters: $(p)")
         prob = remake_params(prob, lrs, p)
         remake(prob; dt=dt/2^(repeat-1)) # halve dt if solve was unsuccessful.
     end
 
     ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
  
-    sim = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
-    params[sim]
+    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
+    params[sol.u]
 end
 
 

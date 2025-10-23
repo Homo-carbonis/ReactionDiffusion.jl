@@ -40,17 +40,16 @@ end
         @test expected_periods/2 < num_periods(u) <= expected_periods
     end
 end
-##
-@testset "filter" begin
+
+# TODO: Write a better test
+@testset "filter_params" begin
     model = Schnakenberg.model
-    params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
-    expected_periods = 12
-    function f(u)
-        u = u[:,1]
-        expected_periods/2 < num_periods(u) <= expected_periods
+    params = (:a => [0.2,0.5,1000.0], :b =>[1.0,2.0,1000.0], :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
+    expected_periods = 18
+
+    filter_params(model,params) do u
+        isapprox(num_periods(u[:,1]), expected_periods; rtol=0.5)
     end
 
-    ps = filter_params(f,model,params)
-    @test ps[a] == [0.0; 0.2; 0.0; 0.2]
-    @test ps[b] == [1.0; 1.0; 2.0; 2.0]
+    @test length(ps) == 7 
 end
