@@ -10,3 +10,7 @@
 - Continue port to GPU
 - Restructure and expand testing.
 - Reconsider use of Catalyst spatial types if not using Catalyst's discretisation.
+- Complete/improve API
+- Use GPU acceleration
+- Allow for transport processes other than classical diffusion.
+- More sophisticated parameter search methods.

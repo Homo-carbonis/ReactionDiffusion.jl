@@ -11,7 +11,7 @@ import Catalyst.LatticeReactionSystem
 
 export Model, species,parameters,reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
-    domain_size, initial_condition, noise
+    domain_size, initial_conditions, noise
 export returnTuringParams, get_params, get_param, simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export endpoint, timepoint
@@ -33,14 +33,14 @@ struct Model
     reaction
     diffusion
     domain_size::Float64 # TODO: move to catalyst parameters.
-    initial_condition
+    initial_conditions
     initial_noise
     seed
 end
 
-function Model(reaction, diffusion; domain_size=2pi, initial_condition=Dict(), initial_noise=0.01, seed=nothing)
+function Model(reaction, diffusion; domain_size=2pi, initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
     seed = something(seed, rand(Int))
-    Model(reaction, diffusion, domain_size, Dict(initial_condition), initial_noise, seed)
+    Model(reaction, diffusion, domain_size, Dict(initial_conditions), initial_noise, seed)
 end
 
 # Model getters
@@ -62,11 +62,11 @@ num_reaction_params(model::Model) = numparams(model.reaction)
 num_diffusion_params(model::Model) = length(model.diffusion)
 
 domain_size(model::Model) = model.domain_size
-initial_condition(model::Model) = model.initial_condition
+initial_conditions(model::Model) = model.initial_conditions
 noise(model::Model) = model.initial_noise
 reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
 diffusion_parameter_vector(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
-initial_condition_vector(model::Model, default=0.0) = get_vector(initial_condition(model), getproperty.(species(model), :f), default)
+initial_condition_vector(model::Model, default=0.0) = get_vector(initial_conditions(model), getproperty.(species(model), :f), default)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
 Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
 
