@@ -10,12 +10,12 @@ reaction = @reaction_network begin
     γ*U^2,          V --> ∅
 end 
 
-diffusion = [
-    (@transport_reaction Dᵤ U),
-    (@transport_reaction Dᵥ V)
-]
+diffusion = @diffusion_system 100 begin
+    Dᵤ, U
+    Dᵥ, V
+end
 
-model = Model(reaction, diffusion; domain_size=100.0)
+model = Model(reaction, diffusion)
 params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0)
 
 end

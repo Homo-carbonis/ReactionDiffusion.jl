@@ -48,29 +48,32 @@ end
 species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = [reaction_parameters(model); diffusion_parameters(model)]
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = getproperty.(model.diffusion, :rate)
+diffusion_rates(model::Model) = getproperty.(model.diffusion.spatial_reactions, :rate)
+diffusion_parameters(model::Model) = union(Catalyst.parameters.(model.diffusion.spatial_reactions)...) # needed?
 function reaction_parameters(model::Model, params)
     rs = nameof.(reaction_parameters(model))
     filter(((k,v),) -> k in rs, params)
 end
-function diffusion_parameters(model::Model, params)
+function diffusion_parameters(model::Model, params) # Still needed?
     rs = nameof.(diffusion_parameters(model))
     filter(((k,v),) -> k in rs, params)
+end
+diffusion_rates(model::Model, params) = substitute(diffusion_rates(model), params)
 end
 num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
 num_reaction_params(model::Model) = numparams(model.reaction)
-num_diffusion_params(model::Model) = length(model.diffusion)
+num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 
 domain_size(model::Model) = model.diffusion.domain_size
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
 initial_conditions(model::Model) = model.initial_conditions
 noise(model::Model) = model.initial_noise
-reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
-diffusion_parameter_vector(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
+reaction_parameters(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
+diffusion_rates(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
 initial_condition_vector(model::Model, default=0.0) = get_vector(initial_conditions(model), getproperty.(species(model), :f), default)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
-Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
+Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion.spatial_reactions, CartesianGrid(n))
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
 
@@ -307,7 +310,7 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
     params = Dict(params)
     # read in parameters (ps), diffusion constants (ds), and initial conditions (ics)
     ps = reaction_parameter_vector(model,params, [0.0])
-    ds = diffusion_parameter_vector(model, params, [1.0])
+    ds = diffusion_rate_vector(model, params, [1.0])
     ics = initial_condition_vector(model, [1.0])
     n_params = num_reaction_params(model)
     n_species = num_species(model)
@@ -428,9 +431,8 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, dx=0.05, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
-    L = domain_size(model)
-    n = Int(L ÷ dx)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
+    n = num_verts
     # Ensure params is a vector of dicts.
     if typeof(params) <: Vector
         params = Dict.(params)
@@ -452,8 +454,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     u0 = createIC(model, n)
     alg = something(alg, ETDRK4())
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    @show params[1]
-    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1], L; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1]; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
     function output_func_(sol,i)
         SciMLBase.successful_retcode(sol) || return (nothing, true) # Request rerun if solution failed.

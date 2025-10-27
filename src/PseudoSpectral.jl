@@ -6,14 +6,14 @@ using SciMLBase, FFTW, Symbolics, Catalyst
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(lrs, u0, tspan, p, L; kwargs...)
+function pseudospectral_problem(lrs, u0, tspan, p; kwargs...)
     ps = make_params(lrs; p...)
     u0 = copy(u0)
     n = size(u0,1)
     m = size(u0,2)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
-    D = build_d!(lrs,L)
+    D = build_d!(lrs)
     R = build_r!(lrs,plan!)
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
@@ -60,14 +60,14 @@ function build_r!(lrs, plan!)
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(lrs, L)
+function build_d!(lrs)
     n = Catalyst.num_verts(lrs)
     m = Catalyst.num_species(lrs)
     p = parameters(lrs)
 
     dps = diffusion_parameters(lrs)
     k = 0:n-1
-    h = L / (n-1)
+    h = 1 / (n-1) # 2pi?
     # Correction from -D(k/2pi h)^2 for the discrete transform.
     λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps])
 

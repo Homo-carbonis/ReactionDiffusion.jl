@@ -2,15 +2,20 @@ using ReactionDiffusion
 include("../examples/Schnakenberg.jl")
 
 
+function num_periods(u)
+    deviation = sign.(u.- 0.5*(maximum(u) .+ minimum(u)))
+    length(findall(!iszero,diff(deviation))) / 2
+end
 model = Schnakenberg.model
 params = Schnakenberg.params
 
 model = Schnakenberg.model
-params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
+params = product(a = [0.2,0.5,10.0], b =[1.0,2.0,10.0], γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
 expected_periods = 12
-function f(u)
+function f(u,t)
     u = u[:,1]
-    expected_periods/2 < num_periods(u) <= expected_periods
+    @show num_periods(u)
+    isapprox(num_periods(u), expected_periods; rtol=0.5)
 end
 
-ps = filter_params(f,model,params)
+ps = filter_params(f,model,params;maxiters=1e5, abstol=1e-3, reltol=1e-3)
