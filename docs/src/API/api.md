@@ -9,6 +9,9 @@ For users more familiar with PDE solvers, it is possible to specify optional arg
 If you require more customization or a more flexible PDE-solving framework, we highly recommend [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl) and/or [Catalyst.jl](https://github.com/SciML/Catalyst.jl).
 
 ## Data structures
+```@docs
+Model
+```
 - `save_turing` is an object that records parameter sets that undergo a Turing instability. It has the following fields:
 
     - `steady_state_values`: The computed steady state values of each variable
@@ -19,7 +22,7 @@ If you require more customization or a more flexible PDE-solving framework, we h
     - `wavelength`: The wavelength that is maximally unstable
     - `max_real_eigval`: The maximum real eigenvalue associated with the Turing instability
     - `non_oscillatory`: If `true`, this parameter set represents a stationary Turing pattern. If `false`, the unstable mode has complex eigenvalues and thus may be oscillatory.
-
+```
 ## Functions
 
 ```@docs

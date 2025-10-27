@@ -41,9 +41,10 @@ model = Model(reaction, diffusion)
 We can then specify values for each parameter:
 
 ```@example quickstart
+num_params=5
 params = (
     :μ₁ => [1.0],
-    :μ₂ => range(0.1,10,5),
+    :μ₂ => range(0.1,10,num_params),
     :k₊ => range(10,100, num_params),
     :k₋ => range(10,100,num_params),
     :μ₃ => [1.0],
@@ -55,14 +56,14 @@ params = (
     :n₁ => [8.0],
     :n₂ => [2.0],
     :D₁ => [1.0],
-    :D₂ => range(0.1,30,10.0),
-    :D₃ => range(0.1,30,10.0)
+    :D₂ => range(0.1,30,10),
+    :D₃ => range(0.1,30,10)
 )
 ```
 
 Then, with a single line of code, we can perform a Turing instability analysis across all combinations of parameters:
 
-```@repl quickstart
+```@example quickstart
 turing_params = returnTuringParams(model, params);
 ```
 
