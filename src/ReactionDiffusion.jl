@@ -14,7 +14,9 @@ export Model, species,parameters,reaction_parameters, diffusion_parameters,
     domain_size, initial_conditions, noise
 export returnTuringParams, get_params, get_param, simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
+export @diffusion_system
 export endpoint, timepoint
+
 
 mutable struct save_turing
     steady_state_values::Vector{Float64}
@@ -32,15 +34,14 @@ end
 struct Model
     reaction
     diffusion
-    domain_size::Float64 # TODO: move to catalyst parameters.
     initial_conditions
     initial_noise
     seed
 end
 
-function Model(reaction, diffusion; domain_size=2pi, initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
+function Model(reaction, diffusion; initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
     seed = something(seed, rand(Int))
-    Model(reaction, diffusion, domain_size, Dict(initial_conditions), initial_noise, seed)
+    Model(reaction, diffusion, Dict(initial_conditions), initial_noise, seed)
 end
 
 # Model getters
@@ -61,7 +62,8 @@ num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(mod
 num_reaction_params(model::Model) = numparams(model.reaction)
 num_diffusion_params(model::Model) = length(model.diffusion)
 
-domain_size(model::Model) = model.domain_size
+domain_size(model::Model) = model.diffusion.domain_size
+is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
 initial_conditions(model::Model) = model.initial_conditions
 noise(model::Model) = model.initial_noise
 reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
@@ -84,6 +86,36 @@ function get_vector(dict, symbols, default)
     end
     v
 end
+
+
+struct DiffusionSystem
+    domain_size
+    spatial_reactions
+end
+
+
+"""
+    @diffusion_system L begin D, S;... end
+Define a spatial domain of length and a set of diffusion rates. Values can be either fixed numbers or parameter symbols.
+- `L`: Length of the domain.
+- `D`: Diffusion rate.
+- `S`: Species name.
+"""
+macro diffusion_system(L, body)
+    DiffusionSystem(L,body)
+end
+
+macro diffusion_system(body)
+    DiffusionSystem(1,body)
+end
+
+function DiffusionSystem(L, body::Expr)
+    Base.remove_linenums!(body)
+    trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
+    ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
+    typeof(L) == Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
+end
+
 
 const nq = 100
 const q2 = 10 .^(range(-2,stop=2,length=nq))
@@ -396,8 +428,8 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
-    L = model.domain_size
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, dx=0.05, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
+    L = domain_size(model)
     n = Int(L ÷ dx)
     # Ensure params is a vector of dicts.
     if typeof(params) <: Vector
