@@ -55,7 +55,7 @@ noise(model::Model) = model.initial_noise
 reaction_parameters(model::Model, params, default=0.0) = subst(reaction_parameters(model), params, default)
 #diffusion_parameters(model::Model, params, default=0.0) = get_vector(params, diffusion_parameters(model), default)
 
-function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.0)
+function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.0) # wrong and bad
     syms = Dict(nameof(p) => p for p in parameters(model))
     params = Dict(syms[k] => v for (k,v) in params)
     [Symbolics.value(substitute(D, params)) for D in diffusion_rates(model,default)]

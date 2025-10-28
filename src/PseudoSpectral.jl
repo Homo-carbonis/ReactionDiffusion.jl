@@ -12,9 +12,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
     m = size(u0,2)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
-    q = sort(p; by=nameof).keys # sorted parameter symbols
-    R = build_r!(species, reaction_rates, u0, q, plan!)
-    D = build_d!(diffusion_rates, u0, q)
+    p = sort(p; by=nameof) # sort parameters
+    R = build_r!(species, reaction_rates, u0, p.keys, plan!)
+    D = build_d!(diffusion_rates, u0, p.keys)
 
     ps = make_params(u0, p) 
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
@@ -32,22 +32,24 @@ remake_params(prob, u0, p) = remake(prob; p=make_params(u0, p))
 
 
 "Build function for the reaction component."
-function build_r!(species, reaction_rates, u0, p, plan!)
+function build_r!(species, reaction_rates, u0, params, plan!)
     (n,m) = size(u0)
     @variables u[1:n, 1:m]
-
-    du = mapslices(u,dims=2) do v
-            s = Dict(zip(species, v))
-            [substitute(expr, s) for expr in reaction_rates]
+    @variables p[1:n, 1:length(params)]
+    # Do clever things to make only spatially varying parameters expand.
+    for (v,q) in eachrow.((u,p))
+        dict = Dict(zip(species,v)..., zip(params,q)...)
+        [substitute(expr, dict) for expr in reaction_rates]
     end
+    
     jac = Symbolics.sparsejacobian(vec(du),vec(u); simplify=true)
     (f,f!) = Symbolics.build_function(du, u, p; expression=Val{false})
     (fjac,fjac!) = Symbolics.build_function(jac, vec(u), p, (); expression=Val{false})
     function f̂!(du,u,p,t)
         DU=reshape(du,n,m)
-        U = p[end]
+        U = last(p)
         U .= reshape(u,n,m)
-        q = p[1:end-1]
+        q = first(p)
         plan! * U
         f!(DU, U, q)
         plan! * DU
@@ -57,14 +59,23 @@ function build_r!(species, reaction_rates, u0, p, plan!)
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(diffusion_rates, u0, p)
+function build_d!(diffusion_rates, u0, params, plan!)
     n = size(u0,1)
+    @variables p[1:n, 1:length(params)]
+    for q in eachrow(p)
+        dict = Dict(zip(params,q)...)
+        [substitute(D, dict) for D in diffusion_rates]
+    end
+    # Compute DCT of D *when params change*
+
     k = 0:n-1
     h = 1 / (n-1) # 2pi?
+
+    
     # Correction from -D(k/2pi h)^2 for the discrete transform.
     λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in diffusion_rates])
 
-    (f,f!) = Symbolics.build_function(λ, p; expression=Val{false})
+    (f,f!) = Symbolics.build_function(λ, params; expression=Val{false})
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ,p[1:end-1]) # Drop working memory at end of p.
     DiagonalOperator(λ0; update_func! = update!)
