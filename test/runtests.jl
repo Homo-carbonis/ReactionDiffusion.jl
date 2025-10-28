@@ -12,18 +12,18 @@ end
 dynamic_range(u) = maximum(u)/minimum(u) 
 
 
-@testset "returnTuringParams" begin
-    model = Schnakenberg.model
-    params = (:a => range(0.0,0.6,4), :b =>range(0.0,3.0,4), :γ => [1.0], :Dᵤ => [1.0], :Dᵥ => [50.0])
+# @testset "returnTuringParams" begin
+#     model = Schnakenberg.model
+#     params = product(a = range(0.0,0.6,4), b = range(0.0,3.0,4), γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
 
-    turing_params = returnTuringParams(model, params, batch_size=2);
-    a = get_param(model, turing_params,:a,"reaction")
-    b = get_param(model, turing_params,:b,"reaction")
+#     turing_params = returnTuringParams(model, params, batch_size=2);
+#     a = get_param(model, turing_params,:a,"reaction")
+#     b = get_param(model, turing_params,:b,"reaction")
 
-    # Test whether the computed Turing parameters match the ground-truth Turing instability region
-    @test a == [0.0; 0.2; 0.0; 0.2]
-    @test b == [1.0; 1.0; 2.0; 2.0]
-end
+#     # Test whether the computed Turing parameters match the ground-truth Turing instability region
+#     @test a == [0.0; 0.2; 0.0; 0.2]
+#     @test b == [1.0; 1.0; 2.0; 2.0]
+# end
 
 @testset "simulate" begin
     model = Schnakenberg.model

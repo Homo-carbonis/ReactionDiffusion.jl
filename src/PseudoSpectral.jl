@@ -2,19 +2,21 @@ module PseudoSpectral
 
 export pseudospectral_problem, remake_params
 
-using SciMLBase, FFTW, Symbolics, Catalyst
+using SciMLBase, FFTW, Symbolics
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(lrs, u0, tspan, p; kwargs...)
-    ps = make_params(lrs; p...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, tspan, p; kwargs...)
     u0 = copy(u0)
     n = size(u0,1)
     m = size(u0,2)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
-    D = build_d!(lrs)
-    R = build_r!(lrs,plan!)
+    q = sort(p; by=nameof).keys # sorted parameter symbols
+    R = build_r!(species, reaction_rates, u0, q, plan!)
+    D = build_d!(diffusion_rates, u0, q)
+
+    ps = make_params(u0, p) 
     update_coefficients!(D,u0,ps,0.0) # Must be called before first step.
     update_coefficients!(R,u0,ps,0.0)
     prob = SplitODEProblem(D, R, vec(u0), tspan, ps; kwargs...)
@@ -26,22 +28,17 @@ function pseudospectral_problem(lrs, u0, tspan, p; kwargs...)
     prob, transform
 end
 
-remake_params(prob, lrs, p) = remake(prob; p=make_params(lrs; p...))
+remake_params(prob, u0, p) = remake(prob; p=make_params(u0, p))
 
 
 "Build function for the reaction component."
-function build_r!(lrs, plan!)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    sps = species(lrs)
-    p = parameters(lrs)
-    rhs = Catalyst.assemble_oderhs(Catalyst.reactionsystem(lrs), sps)
-
+function build_r!(species, reaction_rates, u0, p, plan!)
+    (n,m) = size(u0)
     @variables u[1:n, 1:m]
 
     du = mapslices(u,dims=2) do v
-            s = Dict(zip(sps, v))
-            [substitute(expr, s) for expr in rhs]
+            s = Dict(zip(species, v))
+            [substitute(expr, s) for expr in reaction_rates]
     end
     jac = Symbolics.sparsejacobian(vec(du),vec(u); simplify=true)
     (f,f!) = Symbolics.build_function(du, u, p; expression=Val{false})
@@ -60,36 +57,29 @@ function build_r!(lrs, plan!)
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(lrs)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    p = parameters(lrs)
-
-    dps = diffusion_parameters(lrs)
+function build_d!(diffusion_rates, u0, p)
+    n = size(u0,1)
     k = 0:n-1
     h = 1 / (n-1) # 2pi?
     # Correction from -D(k/2pi h)^2 for the discrete transform.
-    λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in dps])
+    λ = vec([-D * (4/h^2) * sin(k*pi/(2*(n-1)))^2 for k in k, D in diffusion_rates])
 
     (f,f!) = Symbolics.build_function(λ, p; expression=Val{false})
     λ0 = similar(λ, Float64)
-    update!(λ,u,p,t) = f!(λ,p[1:end-1])
+    update!(λ,u,p,t) = f!(λ,p[1:end-1]) # Drop working memory at end of p.
     DiagonalOperator(λ0; update_func! = update!)
 end
 
 
-"Build a tuple of parameters from the given keyword values in the same order as `parameters(lrs)`"
-function make_params(lrs; params...)
-    n = Catalyst.num_verts(lrs)
-    m = Catalyst.num_species(lrs)
-    U = Matrix{Float64}(undef, n, m) # allocate working memory for computing dct.
-    symbols = nameof.(parameters(lrs))
-    p = Tuple(params[k] for k in symbols)
+"Build an ordered tuple of parameters from the given keyword values."
+function make_params(u0, params)
+    U = similar(u0) # allocate working memory for computing dct.
+    p = sort(params; by=nameof).vals
     (p...,U)
 end
 
 "Return diffusion rates for `lrs` in the same order as `species(lrs)` with a default of 0"
-function diffusion_parameters(lrs::LatticeReactionSystem)
+function diffusion_rates(lrs::LatticeReactionSystem)
     sps = species(lrs)
     D::Vector{Num} = zeros(length(sps))
     for r in Catalyst.spatial_reactions(lrs)
