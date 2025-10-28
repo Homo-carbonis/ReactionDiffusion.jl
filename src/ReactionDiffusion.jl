@@ -14,7 +14,9 @@ export Model, species,parameters,reaction_parameters, diffusion_parameters,
     domain_size, initial_conditions, noise
 export returnTuringParams, get_params, get_param, simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
+export @diffusion_system
 export endpoint, timepoint
+
 
 mutable struct save_turing
     steady_state_values::Vector{Float64}
@@ -32,43 +34,46 @@ end
 struct Model
     reaction
     diffusion
-    domain_size::Float64 # TODO: move to catalyst parameters.
     initial_conditions
     initial_noise
     seed
 end
 
-function Model(reaction, diffusion; domain_size=2pi, initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
+function Model(reaction, diffusion; initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
     seed = something(seed, rand(Int))
-    Model(reaction, diffusion, domain_size, Dict(initial_conditions), initial_noise, seed)
+    Model(reaction, diffusion, Dict(initial_conditions), initial_noise, seed)
 end
 
 # Model getters
 species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = [reaction_parameters(model); diffusion_parameters(model)]
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = getproperty.(model.diffusion, :rate)
+diffusion_rates(model::Model) = getproperty.(model.diffusion.spatial_reactions, :rate)
+diffusion_parameters(model::Model) = union(Catalyst.parameters.(model.diffusion.spatial_reactions)...) # needed?
 function reaction_parameters(model::Model, params)
     rs = nameof.(reaction_parameters(model))
     filter(((k,v),) -> k in rs, params)
 end
-function diffusion_parameters(model::Model, params)
+function diffusion_parameters(model::Model, params) # Still needed?
     rs = nameof.(diffusion_parameters(model))
     filter(((k,v),) -> k in rs, params)
+end
+diffusion_rates(model::Model, params) = substitute(diffusion_rates(model), params)
 end
 num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
 num_reaction_params(model::Model) = numparams(model.reaction)
-num_diffusion_params(model::Model) = length(model.diffusion)
+num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 
-domain_size(model::Model) = model.domain_size
+domain_size(model::Model) = model.diffusion.domain_size
+is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
 initial_conditions(model::Model) = model.initial_conditions
 noise(model::Model) = model.initial_noise
-reaction_parameter_vector(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
-diffusion_parameter_vector(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
+reaction_parameters(model::Model, params, default=0.0) = get_vector(params, reaction_parameters(model), default)
+diffusion_rates(model::Model, params, default=1.0) = get_vector(params, diffusion_parameters(model), default)
 initial_condition_vector(model::Model, default=0.0) = get_vector(initial_conditions(model), getproperty.(species(model), :f), default)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
-Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion, CartesianGrid(n))
+Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion.spatial_reactions, CartesianGrid(n))
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
 
@@ -84,6 +89,36 @@ function get_vector(dict, symbols, default)
     end
     v
 end
+
+
+struct DiffusionSystem
+    domain_size
+    spatial_reactions
+end
+
+
+"""
+    @diffusion_system L begin D, S;... end
+Define a spatial domain of length and a set of diffusion rates. Values can be either fixed numbers or parameter symbols.
+- `L`: Length of the domain.
+- `D`: Diffusion rate.
+- `S`: Species name.
+"""
+macro diffusion_system(L, body)
+    DiffusionSystem(L,body)
+end
+
+macro diffusion_system(body)
+    DiffusionSystem(1,body)
+end
+
+function DiffusionSystem(L, body::Expr)
+    Base.remove_linenums!(body)
+    trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
+    ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
+    typeof(L) == Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
+end
+
 
 const nq = 100
 const q2 = 10 .^(range(-2,stop=2,length=nq))
@@ -275,7 +310,7 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
     params = Dict(params)
     # read in parameters (ps), diffusion constants (ds), and initial conditions (ics)
     ps = reaction_parameter_vector(model,params, [0.0])
-    ds = diffusion_parameter_vector(model, params, [1.0])
+    ds = diffusion_rate_vector(model, params, [1.0])
     ics = initial_condition_vector(model, [1.0])
     n_params = num_reaction_params(model)
     n_species = num_species(model)
@@ -396,9 +431,8 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
-    L = model.domain_size
-    n = Int(L ÷ dx)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
+    n = num_verts
     # Ensure params is a vector of dicts.
     if typeof(params) <: Vector
         params = Dict.(params)
@@ -420,8 +454,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     u0 = createIC(model, n)
     alg = something(alg, ETDRK4())
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    @show params[1]
-    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1], L; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    prob, transform = pseudospectral_problem(lrs, u0, tspan, params[1]; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
     function output_func_(sol,i)
         SciMLBase.successful_retcode(sol) || return (nothing, true) # Request rerun if solution failed.
