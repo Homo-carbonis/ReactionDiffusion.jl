@@ -57,7 +57,7 @@ k, X + Y <--> XY
 ```
 k, 2X + Y --> 3Z
 ```
-#### Production of y depends on binding of X (Hill Equation)
+#### Production of Y depends upon binding of X (Hill Equation)
 ```
 hill(X,v,k,n), ∅ --> Y
 ```
@@ -154,7 +154,7 @@ u,t = simulate(model,params)
 simulate(model,params; full_solution=true)
 ```
 
-#### Stop at a set time
+#### Stop at a fixed time
 ```julia
 simulate(model,params; tspan=5.0)
 ```
@@ -164,6 +164,8 @@ simulate(model,params; tspan=5.0)
 ```
 
 ### Filter parameters
+#### Return parameter sets with steady state values < 0.5.
 ```julia
 good_params = filter(model, params) do u,t
     maximum(u) < 0.5
+```

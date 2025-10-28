@@ -6,10 +6,12 @@ pages = Any["Home" => "index.md",
             "Tutorial" => Any["tutorial/installation.md",
             "tutorial/model.md","tutorial/params.md","tutorial/screen.md","tutorial/simulate.md","tutorial/save.md",],
             # "Examples" => Any["examples/cima.md","examples/gm.md","examples/schnakenburg.md"],
-            "API" => "API/api.md"
+            "API" => "API/api.md",
+            "Cheatsheet" => "cheatsheet.md"
             ]
 
-makedocs(sitename="ReactionDiffusion.jl",
+makedocs(
+    sitename="ReactionDiffusion.jl",
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
         assets=["assets/favicon.ico"]
@@ -18,11 +20,12 @@ makedocs(sitename="ReactionDiffusion.jl",
     doctest =false,
     clean=true,
     modules=[ReactionDiffusion],
-    checkdocs=:exports
+    checkdocs=:public,
+    checkdocs_ignored_modules = [ReactionDiffusion.PseudoSpectral]
 )
 
-deploydocs(repo = "github.com/hiscocklab/ReactionDiffusion.jl.git";
-    push_preview = true)
+# deploydocs(repo = "github.com/hiscocklab/ReactionDiffusion.jl.git";
+#     push_preview = true)
 
 
 #run in Julia repl using: include("make.jl"), in the docs environment
