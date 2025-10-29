@@ -306,6 +306,7 @@ function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e
     ics = initial_conditions(model, 1.0)
     n_params = num_reaction_params(model)
     n_species = num_species(model)
+  
 
     # convert reaction network to ODESystem
     odesys = ODESystem(model)
@@ -430,8 +431,8 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
         single = true # Unpack vector at the end if we only have one parameter set.
     end
 
-    # Replace parameter names with actual Symbolics parameters and evaluate any spatial function paramters over n values from 0 to 1.
-    ps = [Dict((@parameters $k)[1] => (typeof(v) <: Function ? v.(range(0.0,1.0,n)) : v) for (k,v) in p) for p in params]
+    # Replace parameter names with actual Symbolics parameters.
+    ps = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
