@@ -431,12 +431,12 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
         single = true # Unpack vector at the end if we only have one parameter set.
     end
 
-    # Replace parameter names with actual Symbolics parameters.
+    # Replace parameter names with actual Symbolics variables.
     ps = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan, ps[1]; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    make_prob, transform, remake_params = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
     function output_func_(sol,i)
         SciMLBase.successful_retcode(sol) || return (nothing, true) # Request rerun if solution failed.
@@ -462,11 +462,11 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
         end
         dt=dt/2^(repeat-1) # halve dt if solve was unsuccessful.
         println("dt=$dt.")
-        prob = remake_params(prob, u0, p)
-        remake(prob; dt=dt) 
+        prob = make_prob(p)
+        remake(prob; dt=dt)
     end
 
-    ensemble_prob = EnsembleProblem(prob; output_func=output_func_, prob_func=prob_func)
+    ensemble_prob = EnsembleProblem(make_prob(ps[1]); output_func=output_func_, prob_func=prob_func)
 
     alg = something(alg, ETDRK4())
     sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
