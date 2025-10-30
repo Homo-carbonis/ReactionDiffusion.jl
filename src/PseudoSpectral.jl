@@ -1,6 +1,6 @@
 module PseudoSpectral
 
-export pseudospectral_problem, remake_params
+export pseudospectral_problem
 
 using SciMLBase, FFTW, Symbolics
 

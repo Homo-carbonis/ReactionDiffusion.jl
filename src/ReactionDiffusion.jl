@@ -32,6 +32,7 @@ function Model(reaction, diffusion; initial_conditions=Dict(), initial_noise=0.0
 end
 
 # Model getters
+# TODO Eliminate unused getters.
 species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model))
 
@@ -64,8 +65,6 @@ end
 initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
 
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
-
-Catalyst.LatticeReactionSystem(model::Model, n) = LatticeReactionSystem(model.reaction, model.diffusion.spatial_reactions, CartesianGrid(n))
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
 
@@ -454,14 +453,14 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     function prob_func(prob, i, repeat)
         p = ps[i]
         if repeat == 1 
-            println("Simulating parameters $p.") #TODO format parameters nicely
+            #println("Simulating parameters $p.") #TODO format parameters nicely
         elseif repeat <= maxrepeats
-            print("Retrying with ")
+            #print("Retrying with ")
         else
             error("Aborting after $repeat attempts.")
         end
         dt=dt/2^(repeat-1) # halve dt if solve was unsuccessful.
-        println("dt=$dt.")
+        #println("dt=$dt.")
         prob = make_prob(p)
         remake(prob; dt=dt)
     end
