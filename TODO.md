@@ -16,3 +16,4 @@
 - More sophisticated parameter search methods.
 - Support default parameters as defined with `@parameters a=2.0` etc.
 - Sort out progress monitoring.
+- Remove Makie backend from deps.

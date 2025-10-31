@@ -22,6 +22,7 @@ SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 SteadyStateDiffEq = "9672c7b4-1e72-59bd-8a11-6ac3964bc41f"
 StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
 [compat]
 Catalyst = "15.0.8"
@@ -42,6 +43,7 @@ SciMLBase = "2.110.0"
 SteadyStateDiffEq = "2.6.0"
 StructArrays = "0.7.1"
 Symbolics = "6.55.0"
+WGLMakie = "0.11.10"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

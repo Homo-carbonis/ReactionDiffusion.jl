@@ -2,8 +2,8 @@ module ReactionDiffusion
 
 include("PseudoSpectral.jl")
 using .PseudoSpectral
-using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqBDF, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
-
+using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
+using Makie, Printf # Plotting
 # Methods and constructors to be extended:
 import Random.seed!
 import ModelingToolkit.ODESystem
@@ -15,7 +15,7 @@ export Model, species, parameters, reaction_parameters, diffusion_parameters,
 export simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export @diffusion_system
-export endpoint, timepoint
+export plot_solutions # Re-export plot function
 
 "Contains all information about the model which is independent of the parameter values and method of solution."
 struct Model
@@ -50,6 +50,8 @@ num_reaction_params(model::Model) = numparams(model.reaction)
 num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 
 domain_size(model::Model) = model.diffusion.domain_size
+domain_size(model::Model, params) = params[nameof(domain_size(model))] #TODO support default parameter.
+
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
 noise(model::Model) = model.initial_noise
 
@@ -435,10 +437,13 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    make_prob, transform, remake_params = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
+    progress = Progress(length(ps); desc="Simulating parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
+
     function output_func_(sol,i)
-        SciMLBase.successful_retcode(sol) || return (nothing, true) # Request rerun if solution failed.
+        repeat = sol.prob.p.state
+        SciMLBase.successful_retcode(sol) || return ((missing, missing), repeat <= maxrepeats) # Rerun if solution failed.
         if full_solution
             t=sol.t
             u = stack(transform(u) for u in sol.u)
@@ -451,18 +456,10 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
         
     function prob_func(prob, i, repeat)
+        update!(progress, i)
         p = ps[i]
-        if repeat == 1 
-            #println("Simulating parameters $p.") #TODO format parameters nicely
-        elseif repeat <= maxrepeats
-            #print("Retrying with ")
-        else
-            error("Aborting after $repeat attempts.")
-        end
-        dt=dt/2^(repeat-1) # halve dt if solve was unsuccessful.
-        #println("dt=$dt.")
-        prob = make_prob(p)
-        remake(prob; dt=dt)
+        dt = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
+        prob = make_prob(p, repeat; dt=dt)
     end
 
     ensemble_prob = EnsembleProblem(make_prob(ps[1]); output_func=output_func_, prob_func=prob_func)
@@ -497,59 +494,31 @@ function filter_params(f, model, params; kwargs...)
     params[sol.u]
 end
 
-struct endpoint end
 
-@recipe function plot(::endpoint, model, u)
-    pattern = u[:,:,end]
-    x = range(0,1, length = size(pattern,1))
-    labels = []
-    for state in species(model)
-        push!(labels,nameof(state))
-    end
+## Plotting functions
 
-    pattern = pattern ./ maximum(pattern,dims=1)
-
-    labels --> reshape(labels,1,length(labels))
-    ticks --> :none
-    leg --> Symbol(:outer,:right)
-    linewidth --> 2
-    x, pattern
+function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+    L = domain_size(model, params)
+    labels = [string(s.f) for s in species(model)]
+    u,t=simulate(model,params; full_solution=true, kwargs...)
+    x_steps = size(u, 1)
+    x = range(0,L,length=x_steps)
+	r = normalise ? norm.(eachslice(u, dims=(2,3))) : ones(size(u)[2:3])
+	fig=Figure()
+	ax = Axis(fig[1,1])
+	hide_y && hideydecorations!(ax)
+    sg = SliderGrid(fig[2,1], (label="t",range=eachindex(t), format=i->@sprintf("%.2f",t[i])))
+    sl=sg.sliders[1]
+	T = lift(i -> t[i], sl.value)
+	U = [lift(i -> u[:,i]/r[i], sl.value) for (u,r) in zip(eachslice(u, dims=2), eachrow(r))]
+	for (U,label) in zip(U,labels)
+		lines!(ax,x,U, label=label)
+	end
+	autolimits && on(sl.value) do _
+	    autolimits!(ax)
+	end
+	axislegend(ax)
+    display(fig)
 end
-
-
-
-struct timepoint end
-
-@recipe function plot(::timepoint, model, u, t)
-    if t > 1 || t < 0
-        error("Time should be between 0 and 1, representing first and last simulation timepoints respectively)")
-    end
-
-    if t == 0
-        t = 1e-20
-    end
-
-    x = range(0,1, length = size(u,1))    
-    labels = []
-    for state in species(model)
-        push!(labels,chop(string(state), head=0,tail=3))
-    end
-    labels = reshape(labels,1,length(labels))
-    i = Int(ceil(t*size(u,3)))
-    normalization_factor = reshape(maximum(u[:,:,1:i],dims=(1,3)), 1, :)
-
-    pattern = u[:,:,i]
-
-    pattern = pattern ./ normalization_factor
-
-    labels --> reshape(labels,1,length(labels))
-    ticks --> :none
-    leg --> Symbol(:outer,:right)
-    linewidth --> 2
-
-    x,pattern
-
-end
-
 
 end

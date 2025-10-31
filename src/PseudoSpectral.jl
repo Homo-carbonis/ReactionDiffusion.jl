@@ -29,15 +29,15 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
     prob = SplitODEProblem(D, R, vec(u0), tspan, nothing; kwargs...)
 
     # Function to set parameter values.
-    function make_problem(p)
+    function make_problem(p, state=nothing; kwargs...)
         r = [p[k] for k in rs]
         d = [p[k] for k in ds]
         r = stack(p isa Function ? p.(range(0.0,1.0,n)) : fill(p, n) for p in r) # Expand r into an n x length(r) matrix
         any(p isa Function for p in d) && error("Spatially dependent diffusion parameters are not supported.")
         u = similar(u0) # Allocate working memory for dct.
-        params = Parameters(u,r,d)
+        params = Parameters(u,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, params, 0.0) # Set parameter values in diffusion operator.
-        remake(prob; p=params) # Set parameter values in SplitODEProblem.
+        remake(prob; p=params, kwargs...) # Set parameter values in SplitODEProblem.
     end     
 
     # Function to transform output back to spatial domain.
@@ -47,7 +47,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
         u
     end
 
-    make_problem, transform, remake_params
+    make_problem, transform
 end
 
 
@@ -89,8 +89,9 @@ end
 
 struct Parameters
     u # Working array for dct.
-    r
-    d
+    r # Reaction parameter matrix.
+    d # Diffusion parameter vector.
+    state # Only used for metadata.
 end
 
 sort_params(p) = sort(p, by=nameof)
