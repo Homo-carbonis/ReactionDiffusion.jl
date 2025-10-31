@@ -521,4 +521,38 @@ function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwarg
     display(fig)
 end
 
+# TODO Refactor so this shares code with simulate and plot.
+function plot_sliders(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
+    n = num_verts
+    alg = something(alg, ETDRK4())
+
+
+    # Replace parameter names with actual Symbolics variables.
+    param_ranges = Dict((@parameters $k)[1] => v for (k,v) in param_ranges)
+    param_ranges = PseudoSpectral.sort_params(param_ranges) ## Interface!
+
+
+    u0 = createIC(model, n)
+    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+   
+	fig=Figure()
+	ax = Axis(fig[1,1])
+	hide_y && hideydecorations!(ax)
+    slider_specs = [(label=string(k),range=v) for (k,v) in param_ranges]
+    sg = SliderGrid(fig[1,2], slider_specs...)
+
+    function f(vals...)
+        p = Dict(zip([k for (k,_) in param_ranges], vals))
+        @show p
+        prob = make_prob(p)
+        sol =  solve(prob, alg)
+        transform(sol.u[end])
+    end
+    U = lift(f, (sl.value for sl in sg.sliders)...)
+    x = range(0,1,n)
+    lines!(ax,x,U[][:,1])
+    display(fig)
+end
+
 end

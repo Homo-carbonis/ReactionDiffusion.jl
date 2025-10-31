@@ -1,5 +1,6 @@
 using ReactionDiffusion
 
+make_dict(;kwargs...) = Dict(kwargs)
 reaction = @reaction_network begin
     anterior * μ_bcd,           ∅ --> BCD
     posterior * μ_nos,          ∅ --> NOS
@@ -34,6 +35,23 @@ params = product(
     D_hb = [0.1]
 )
 
+param_ranges = make_dict(
+    L = [1.0],
+    anterior = range(0.1, 2.0, 2), ## temp
+    posterior = range(0.1, 2.0, 2),
+    μ_bcd = range(0.1, 2.0, 2),
+    μ_nos = range(0.1, 2.0, 2),
+    δ_bcd = range(0.1, 2.0, 2),
+    δ_nos = range(0.1, 2.0, 2),
+    μ_hb = range(0.1, 2.0, 2),
+    K = range(0.1, 1.0, 2),
+    n = range(1.0, 8.0, 2),
+    δ_hb = range(0.1, 2.0, 2),
+    D_bcd = [0.1],
+    D_nos = [0.1],
+    D_hb = [0.1]
+)
+
 function hb_partition(u, t)
     u = u[:,3]
     n = length(u)
@@ -43,6 +61,7 @@ end
 
 good_params = filter_params(hb_partition, model, params)
 
-u,t=simulate(model,good_params[1]; full_solution=true)
+u,t=simulate(model,params[1]; full_solution=true)
 
-ReactionDiffusion.Plot.plot_solutions(u,t, string.(species(model)))
+ReactionDiffusion.plot(model, params[1])
+ReactionDiffusion.plot_sliders(model, param_ranges)
