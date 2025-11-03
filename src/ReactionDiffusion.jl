@@ -15,7 +15,7 @@ export Model, species, parameters, reaction_parameters, diffusion_parameters,
 export simulate, filter_params, product
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export @diffusion_system
-export plot_solutions # Re-export plot function
+export plot, interactive_plot
 
 "Contains all information about the model which is independent of the parameter values and method of solution."
 struct Model
@@ -498,6 +498,7 @@ end
 ## Plotting functions
 
 function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+    params = Dict(params)
     L = domain_size(model, params)
     labels = [string(s.f) for s in species(model)]
     u,t=simulate(model,params; full_solution=true, kwargs...)
@@ -522,7 +523,7 @@ function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwarg
 end
 
 # TODO Refactor so this shares code with simulate and plot.
-function plot_sliders(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
+function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
     n = num_verts
     alg = something(alg, ETDRK4())
 
