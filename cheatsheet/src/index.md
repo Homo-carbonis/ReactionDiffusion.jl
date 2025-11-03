@@ -9,29 +9,19 @@ reaction = @reaction_network begin
     k, X --> Y + Z
 end
 ```
-- `X, Y, Z`: reactants
-- `μ, δ, k`: reaction parameters
+- `X, Y, Z`: Reactants
+- `μ, δ, k`: Reaction parameters
 
-#### Enter symbols using latex macros + TAB
-```
-> \mu<TAB>\_1<TAB>
-```
-```
-> μ₁
-```
+NB. Enter symbols using LaTeX macros + TAB
+-`\mu<TAB>\_1<TAB>` --> `μ₁`\
+-`\emptyset<TAB>` --> `∅`
 
-```
-> \emptyset<TAB>
-```
-```
-> ∅
-```
 
-#### Without unicode symbols
+#### Alternative without extra symbols
 ```julia
 reaction = @reaction_network begin
-    r * b, 0 --> X
-    r * d, X --> 0
+    b, 0 --> X
+    d, X --> 0
     k, X --> Y + Z
 end
 ```
@@ -63,18 +53,19 @@ hill(X,v,k,n), ∅ --> Y
 ```
 
 ## Diffusion
-## Define a spatial domain and a set of diffusion parameters
+#### Define a spatial domain and a set of diffusion parameters
 ```
 diffusion = @diffusion_system L begin
     D₁, X
     D₂, Y
 end
-
+```
 - `L`: length of domain
 - `X, Y`: reactants
 - `D₁, D₂`: diffusion rate parameters
+
 ```
-## Initial Conditions
+#### Initial Conditions
 ```julia
 initial_conditions = @initial_conditions begin
     1.0, X
@@ -95,7 +86,7 @@ model = Model(reaction, diffusion, initial_conditions)```
 ```
 
 ## Parameters
-### Single parameter sets
+#### Single parameter sets
 ```julia
 params = (
     μ = 1.0,
@@ -103,7 +94,7 @@ params = (
 )
 ```
 
-### Multiple parameter sets
+#### Multiple parameter sets
 ```julia
 params = [
     (μ = 1.0, δ = 2.0),
@@ -144,7 +135,7 @@ params = (anterior = <(margin), posterior = >(1-margin))
 ```
 
 ## Simulation
-### Run simulations
+#### Run simulations
 ```julia
 u,t = simulate(model,params)
 ```
@@ -158,14 +149,25 @@ simulate(model,params; full_solution=true)
 ```julia
 simulate(model,params; tspan=5.0)
 ```
-##
-```julia
-simulate(model,params; tspan=5.0)
-```
 
 ### Filter parameters
 #### Return parameter sets with steady state values < 0.5.
 ```julia
 good_params = filter(model, params) do u,t
     maximum(u) < 0.5
+```
+
+## Plotting
+#### Simulate and plot results over time for a particular parameter set.
+```julia
+plot(model, params[3])
+```
+
+#### Attach sliders to each parameter for an interactive plot.
+```julia
+params = (
+    μ => range(1.0, 1.5, 50)
+    δ => range(2.0, 3.0, 50)
+)
+plot_sliders(model, params)
 ```
