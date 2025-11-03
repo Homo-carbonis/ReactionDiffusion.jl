@@ -72,7 +72,7 @@ Random.seed!(model::Model) = Random.seed!(model.seed)
 
 "Return a vector of dictionaries containing the cartesian product of the given values."
 product(;kwargs...) = vec([Dict(zip(keys(kwargs), vals)) for vals in Iterators.product(values(kwargs)...)])
-
+product(dict::Dict) = product(;dict...)
 "Replace each element of keys with either the corresponding value in dict or default."
 function subst(keys, dict, default)
     v = Vector(undef,0)
@@ -527,9 +527,6 @@ function plot_sliders(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_v
     alg = something(alg, ETDRK4())
 
 
-    # Replace parameter names with actual Symbolics variables.
-    param_ranges = Dict((@parameters $k)[1] => v for (k,v) in param_ranges)
-    param_ranges = PseudoSpectral.sort_params(param_ranges) ## Interface!
 
 
     u0 = createIC(model, n)
@@ -539,19 +536,26 @@ function plot_sliders(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_v
 	fig=Figure()
 	ax = Axis(fig[1,1])
 	hide_y && hideydecorations!(ax)
-    slider_specs = [(label=string(k),range=v) for (k,v) in param_ranges]
-    sg = SliderGrid(fig[1,2], slider_specs...)
 
+    # Replace parameter names with actual Symbolics variables.
+    param_ranges = Dict((@parameters $k)[1] => v for (k,v) in param_ranges)
+    param_ranges = PseudoSpectral.sort_params(param_ranges) ## Interface!
+    slider_specs = [(label=string(k), range = v isa AbstractRange ? v : 1:length(v)) for (k,v) in param_ranges]
+
+    sg = SliderGrid(fig[1,2], slider_specs...)
     function f(vals...)
-        p = Dict(zip([k for (k,_) in param_ranges], vals))
-        @show p
+        p = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
         prob = make_prob(p)
         sol =  solve(prob, alg)
         transform(sol.u[end])
     end
     U = lift(f, (sl.value for sl in sg.sliders)...)
     x = range(0,1,n)
-    lines!(ax,x,U[][:,1])
+
+    for i in eachindex(eachcol(U[]))
+        lines!(ax, x, lift(u -> u[:,i], U))
+    end
+
     display(fig)
 end
 

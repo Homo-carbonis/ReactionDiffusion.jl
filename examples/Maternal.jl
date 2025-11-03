@@ -1,4 +1,4 @@
-using ReactionDiffusion
+using ReactionDiffusion, WGLMakie
 
 make_dict(;kwargs...) = Dict(kwargs)
 reaction = @reaction_network begin
@@ -18,7 +18,7 @@ diffusion = @diffusion_system L begin
 end
 
 model = Model(reaction, diffusion)
-params = product(
+param_ranges = make_dict(
     L = [1.0],
     anterior = [x -> (x < 1/12) ? 1 : 0],
     posterior = [x -> (x > 11/12) ? 1 : 0],
@@ -35,22 +35,8 @@ params = product(
     D_hb = [0.1]
 )
 
-param_ranges = make_dict(
-    L = [1.0],
-    anterior = range(0.1, 2.0, 2), ## temp
-    posterior = range(0.1, 2.0, 2),
-    μ_bcd = range(0.1, 2.0, 2),
-    μ_nos = range(0.1, 2.0, 2),
-    δ_bcd = range(0.1, 2.0, 2),
-    δ_nos = range(0.1, 2.0, 2),
-    μ_hb = range(0.1, 2.0, 2),
-    K = range(0.1, 1.0, 2),
-    n = range(1.0, 8.0, 2),
-    δ_hb = range(0.1, 2.0, 2),
-    D_bcd = [0.1],
-    D_nos = [0.1],
-    D_hb = [0.1]
-)
+params = product(param_ranges)
+
 
 function hb_partition(u, t)
     u = u[:,3]
