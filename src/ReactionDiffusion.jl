@@ -50,7 +50,10 @@ num_reaction_params(model::Model) = numparams(model.reaction)
 num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 
 domain_size(model::Model) = model.diffusion.domain_size
-domain_size(model::Model, params) = params[nameof(domain_size(model))] #TODO support default parameter.
+function domain_size(model::Model, params)
+    L = domain_size(model)
+    L isa Symbol ? params[nameof(L)] : L
+end
 
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
 noise(model::Model) = model.initial_noise
@@ -109,7 +112,7 @@ function DiffusionSystem(L, body::Expr)
     Base.remove_linenums!(body)
     trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
     ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
-    typeof(L) == Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
+    L isa Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
 end
 
 
@@ -526,9 +529,6 @@ end
 function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
     n = num_verts
     alg = something(alg, ETDRK4())
-
-
-
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)

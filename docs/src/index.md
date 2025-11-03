@@ -29,11 +29,11 @@ reaction = @reaction_network begin
     μ₃*GDF5,                ∅ --> pSMAD
 end
 
-diffusion = [
-    (@transport_reaction D₁ GDF5),
-    (@transport_reaction D₂ NOG),
-    (@transport_reaction D₃ COMPLEX)
-]
+diffusion = @diffusion_system L begin
+    D₁, GDF5,
+    D₂, NOG,
+    D₃, COMPLEX
+end
 
 model = Model(reaction, diffusion)
 ```
@@ -41,18 +41,17 @@ model = Model(reaction, diffusion)
 We can then specify values for each parameter:
 
 ```@example quickstart
-num_params=5
 params = (
     :μ₁ => [1.0],
-    :μ₂ => range(0.1,10,num_params),
-    :k₊ => range(10,100, num_params),
-    :k₋ => range(10,100,num_params),
+    :μ₂ => range(0.1,10,5),
+    :k₊ => range(10,100, 5),
+    :k₋ => range(10,100,5),
     :μ₃ => [1.0],
-    :δ₁ => range(0.1,10,num_params),
-    :δ₂ => range(0.1,10,num_params),
+    :δ₁ => range(0.1,10,5),
+    :δ₂ => range(0.1,10,5),
     :δ₃ => [1.0],
-    :K₁ => range(0.01,1.0,num_params),
-    :K₂ => range(0.01,1.0,num_params),
+    :K₁ => range(0.01,1.0,5),
+    :K₂ => range(0.01,1.0,5),
     :n₁ => [8.0],
     :n₂ => [2.0],
     :D₁ => [1.0],
@@ -69,7 +68,7 @@ turing_params = returnTuringParams(model, params);
 
 This returns all parameter combinations that can break symmetry from a homogeneous initial condition. We take advantage of the highly performant numerical solvers in [DifferentialEquations.jl](https://github.com/SciML/DifferentialEquations.jl) to be able to simulate millions of parameter sets per minute on a standard laptop. 
 
-We may then take a single parameter set and simulate its spatiotemporal dynamics directly, using `Plots.jl` to visualize the resulting pattern:
+We may then take a single parameter set and simulate its spatiotemporal dynamics directly.
 
 ```@example quickstart
 param1 = get_params(model, turing_params[1000])

@@ -1,14 +1,6 @@
-push!(LOAD_PATH,"../src/")
+#push!(LOAD_PATH,"../src/")
 
 using Documenter, ReactionDiffusion
-
-pages = Any["Home" => "index.md",
-            "Tutorial" => Any["tutorial/installation.md",
-            "tutorial/model.md","tutorial/params.md","tutorial/screen.md","tutorial/simulate.md","tutorial/save.md",],
-            # "Examples" => Any["examples/cima.md","examples/gm.md","examples/schnakenburg.md"],
-            "API" => "API/api.md",
-            "Cheatsheet" => "cheatsheet.md"
-            ]
 
 makedocs(
     sitename="ReactionDiffusion.jl",
@@ -16,7 +8,13 @@ makedocs(
         prettyurls = get(ENV, "CI", nothing) == "true",
         assets=["assets/favicon.ico"]
     ),
-    pages=pages,
+    pages = [
+      #  "Home" => "index.md",
+      #  "Tutorial" => ["tutorial/installation.md", "tutorial/model.md", "tutorial/params.md", "tutorial/screen.md", "tutorial/simulate.md", "tutorial/save.md"],
+      #  # "Examples" => Any["examples/cima.md","examples/gm.md","examples/schnakenburg.md"],
+      #  "API" => "API/api.md",
+        "Cheatsheet" => "cheatsheet.md"
+    ],
     doctest =false,
     clean=true,
     modules=[ReactionDiffusion],
