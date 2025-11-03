@@ -15,11 +15,11 @@ reaction = @reaction_network begin
     μ₃*GDF5,                ∅ --> pSMAD
 end
 
-diffusion = [
-    (@transport_reaction D_GDF5 GDF5),
-    (@transport_reaction D_NOG NOG),
-    (@transport_reaction D_COMPLEX COMPLEX)
-]
+diffusion = @diffusion_system L begin
+    D_GDF5,     GDF5
+    D_NOG,      NOG
+    D_COMPLEX,  COMPLEX
+end
 
 model = Model(reaction, diffusion)
 
