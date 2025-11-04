@@ -12,7 +12,7 @@ import Catalyst.LatticeReactionSystem
 export Model, species, parameters, reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_conditions, noise
-export simulate, filter_params, product
+export simulate, filter_params, product, dict
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export @diffusion_system
 export plot, interactive_plot
@@ -52,7 +52,7 @@ num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 domain_size(model::Model) = model.diffusion.domain_size
 function domain_size(model::Model, params)
     L = domain_size(model)
-    L isa Symbol ? params[nameof(L)] : L
+    L isa Symbolics.Num ? params[nameof(L)] : L
 end
 
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
@@ -85,6 +85,9 @@ function subst(keys, dict, default)
     end
     v
 end
+
+"Convenience function to construct a dict using (k=v, ...) syntax"
+dict(;kwargs...) = Dict(kwargs)
 
 
 struct DiffusionSystem
@@ -552,11 +555,14 @@ function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, n
     end
     U = lift(f, (sl.value for sl in sg.sliders)...)
     x = range(0,1,n)
-
+    labels = [string(s.f) for s in species(model)]
     for i in eachindex(eachcol(U[]))
-        lines!(ax, x, lift(u -> u[:,i], U))
+        lines!(ax, x, lift(u -> u[:,i], U); label=labels[i])
     end
-
+    on(U) do _
+	    autolimits!(ax)
+	end
+    axislegend(ax)
     display(fig)
 end
 
