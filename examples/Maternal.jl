@@ -46,17 +46,21 @@ params = product(
 function hb_partition(u, t)
     u = u[:,3]
     n = length(u)
-    u_c = maximum(u)/4
-    all(>=(1-u_c), u[1:n÷3]) && all(<(u_c), u[n÷3+1:end])
+    # Divide domain into 3rds.
+    anterior = u[1:n÷3] 
+    posterior = u[n-n÷3:end]
+    u_min = minimum(u)
+    u_max = maximum(u)
+    d = (u_max - u_min)/4
+    all(anterior .> u_min + d) && all(posterior .< u_max - d)
 end
 
 
 ## Find all the parameters which satisfy `hb_partition`.
-good_params = filter_params(hb_partition, model, params)
+good_params = filter_params(hb_partition, model, params; maxrepeats=2, maxiters=1e4, num_verts=64)
 
 ## Simulate the system with one of the good parameter sets and plot the results over time. 
 ReactionDiffusion.plot(model, params[1])
-@code_warntype simulate(model, params[1])
 
 ## Define some plausible ranges of parameter values to explore.
 param_ranges = dict(

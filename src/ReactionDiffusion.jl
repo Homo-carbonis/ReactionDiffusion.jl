@@ -3,7 +3,7 @@ module ReactionDiffusion
 include("PseudoSpectral.jl")
 using .PseudoSpectral
 using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
-using Makie, Printf # Plotting
+using Makie, Observables, Printf # Plotting
 # Methods and constructors to be extended:
 import Random.seed!
 import ModelingToolkit.ODESystem
@@ -427,7 +427,7 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4, kwargs...)
     n = num_verts
     
     # Ensure params is a vector.
@@ -449,7 +449,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
 
     function output_func_(sol,i)
         repeat = sol.prob.p.state
-        SciMLBase.successful_retcode(sol) || return ((missing, missing), repeat <= maxrepeats) # Rerun if solution failed.
+        SciMLBase.successful_retcode(sol) || return (missing, repeat <= maxrepeats) # Rerun if solution failed.
         if full_solution
             t=sol.t
             u = stack(transform(u) for u in sol.u)
@@ -471,7 +471,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     ensemble_prob = EnsembleProblem(make_prob(ps[1]); output_func=output_func_, prob_func=prob_func)
 
     alg = something(alg, ETDRK4())
-    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true)
+    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true, kwargs...)
     single ? sol[1] : sol
 end
 
@@ -496,20 +496,23 @@ end
 ```
 """
 function filter_params(f, model, params; kwargs...)
-    sol = simulate(model,params; output_func=f, kwargs...)
-    params[sol.u]
+    sol = simulate(model,params; output_func=f, verbose=false, kwargs...)
+    pass = [ismissing(u) ? false : u for u in sol.u]
+    params[pass]
 end
 
 
 ## Plotting functions
 
 function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
-    params = Dict(params)
-    L = domain_size(model, params)
-    labels = [string(s.f) for s in species(model)]
     u,t=simulate(model,params; full_solution=true, kwargs...)
+    plot(model, u,t)
+end
+
+function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
+    labels = [string(s.f) for s in species(model)]
     x_steps = size(u, 1)
-    x = range(0,L,length=x_steps)
+    x = range(0.0,1.0,length=x_steps)
 	r = normalise ? norm.(eachslice(u, dims=(2,3))) : ones(size(u)[2:3])
 	fig=Figure()
 	ax = Axis(fig[1,1])

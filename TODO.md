@@ -18,3 +18,4 @@
 - Sort out progress monitoring.
 - Remove Makie backend from deps.
 - Implement @initial_conditions.
+- Access solutions by species rather than integer index.
