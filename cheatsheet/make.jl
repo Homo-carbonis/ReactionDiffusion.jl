@@ -7,4 +7,5 @@ makedocs(
     clean=true,
     modules=[ReactionDiffusion],
     checkdocs=:none,
+    pages=["Cheatsheet" => "index.md"]
 )

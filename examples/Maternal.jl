@@ -26,8 +26,8 @@ model = Model(reaction, diffusion)
 params = dict(
     L = 2.0,
     # `anterior` and `posterior` are defined as step functions in space. 
-    anterior = x -> (x < 1/12) ? 1 : 0,   # 1 in the anterior 12th of the domain, 0 elsewhere.
-    posterior = x -> (x > 11/12) ? 1 : 0, # 1 in the posterior 12th of the domain, 0 elsewhere.
+    anterior = <(1/12),   # 1 in the anterior 12th of the domain, 0 elsewhere.
+    posterior = >(11/12), # 1 in the posterior 12th of the domain, 0 elsewhere.
     μ_bcd = 1.0,
     μ_nos = 1.0,
     δ_bcd = 1.0,
@@ -38,7 +38,7 @@ params = dict(
     δ_hb = 1.0,
     D_bcd = 1.0,
     D_nos = 1.0,
-    D_hb = 0.2
+    D_hb = 0.1
 )
 
 ## Simulate the system with one of the "good" parameter sets and plot the results over time. 
@@ -63,4 +63,4 @@ param_ranges = dict(
 )
 
 ## Create an interactive plot with sliders to change each parameter.
-ReactionDiffusion.interactive_plot(model, param_ranges; num_verts=64)
+ReactionDiffusion.interactive_plot(model, param_ranges)
