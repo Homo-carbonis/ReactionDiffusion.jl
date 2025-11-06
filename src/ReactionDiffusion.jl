@@ -427,11 +427,11 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, maxrepeats = 4, kwargs...)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, maxrepeats = 4, kwargs...)
     n = num_verts
     
     # Ensure params is a vector.
-    if typeof(params) <: Vector
+    if params isa Vector
         single=false
     else
         params = [params]
@@ -442,6 +442,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     ps = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
 
     u0 = createIC(model, n)
+    @show reltol
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
     make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
@@ -450,6 +451,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     function output_func_(sol,i)
         repeat = sol.prob.p.state
         SciMLBase.successful_retcode(sol) || return (missing, repeat <= maxrepeats) # Rerun if solution failed.
+        next!(progress) # Advance progress bar.
         if full_solution
             t=sol.t
             u = stack(transform(u) for u in sol.u)
@@ -462,7 +464,6 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
         
     function prob_func(prob, i, repeat)
-        update!(progress, i)
         p = ps[i]
         dt = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
         prob = make_prob(p, repeat; dt=dt)
@@ -532,7 +533,7 @@ function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs.
 end
 
 # TODO Refactor so this shares code with simulate and plot.
-function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=128, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
+function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=64, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
     n = num_verts
     alg = something(alg, ETDRK4())
 
@@ -557,6 +558,7 @@ function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, n
         transform(sol.u[end])
     end
     U = lift(f, (sl.value for sl in sg.sliders)...)
+    U = throttle(1/120, U) # Limit update rate to 120Hz
     x = range(0,1,n)
     labels = [string(s.f) for s in species(model)]
     for i in eachindex(eachcol(U[]))
