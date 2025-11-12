@@ -6,19 +6,18 @@ using SciMLBase, FFTW, Symbolics
 
 "Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, tspan; kwargs...)
-    u0 = copy(u0)
-    n = size(u0,1)
-    m = size(u0,2)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, num_verts, tspan; kwargs...)
+    n = num_verts
+    m = length(species)
+    u0 = Matrix{Float64}(undef, n,m)
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
-    plan! * u0
 
     # Get arrays of Symbolics variables for reaction and diffusion parameters.
     rs = sort_params(setdiff(union(Symbolics.get_variables.(reaction_rates)...), species))
     ds = sort_params(union(Symbolics.get_variables.(diffusion_rates)...))
     
-    R = build_r!(species, reaction_rates, u0, rs, plan!)
-    D = build_d!(diffusion_rates, u0, ds)
+    R = build_r!(species, reaction_rates, n, rs, plan!)
+    D = build_d!(diffusion_rates, n, ds)
 
 
     
@@ -29,15 +28,17 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
     prob = SplitODEProblem(D, R, vec(u0), tspan, nothing; kwargs...)
 
     # Function to set parameter values.
-    function make_problem(p, state=nothing; kwargs...)
+    function make_problem(p, u0, state=nothing; kwargs...)
         r = [p[k] for k in rs]
         d = [p[k] for k in ds]
-        r = stack(p isa Function ? p.(range(0.0,1.0,n)) : fill(p, n) for p in r) # Expand r into an n x length(r) matrix
+        u0 = [u0[k] for s in species]
+        r = build_matrix(r,n)
         any(p isa Function for p in d) && error("Spatially dependent diffusion parameters are not supported.")
+        u0 = build_matrix(u0,n)
         u = similar(u0) # Allocate working memory for dct.
         params = Parameters(u,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, params, 0.0) # Set parameter values in diffusion operator.
-        remake(prob; p=params, kwargs...) # Set parameter values in SplitODEProblem.
+        remake(prob; u0=u0, p=params, kwargs...) # Set parameter values in SplitODEProblem.
     end     
 
     # Function to transform output back to spatial domain.
@@ -52,8 +53,8 @@ end
 
 
 "Build function for the reaction component."
-function build_r!(species, reaction_rates, u0, ps, plan!)
-    (n,m) = size(u0)
+function build_r!(species, reaction_rates, n, ps, plan!)
+    m = length(species)
     @variables u[1:n, 1:m]
     @variables p[1:n, 1:length(ps)]
     # Do clever things to make only spatially varying parameters expand?
@@ -74,8 +75,7 @@ function build_r!(species, reaction_rates, u0, ps, plan!)
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(diffusion_rates, u0, ps)
-    n = size(u0,1)
+function build_d!(diffusion_rates, n, ps)
     k = 0:n-1
     h = 1 / (n-1) # 2pi?
     k² = @. (4/h^2) * sin(k*pi/(2*(n-1)))^2  # Correction from (k/2pi h)^2 for the discrete transform.
@@ -96,5 +96,7 @@ end
 
 sort_params(p) = sort(p, by=nameof)
 
-end
+"Expand v into an n x length(v) matrix."
+build_matrix(v, n) = stack(a isa Function ? a.(range(0.0,1.0,n)) : fill(a, n) for a in v)
 
+end

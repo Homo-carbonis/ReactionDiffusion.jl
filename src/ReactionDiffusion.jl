@@ -443,7 +443,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), n, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
     progress = Progress(length(ps); desc="Simulating parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
