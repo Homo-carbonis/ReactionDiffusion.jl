@@ -442,7 +442,6 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     ps = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
 
     u0 = createIC(model, n)
-    @show reltol
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
     make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
