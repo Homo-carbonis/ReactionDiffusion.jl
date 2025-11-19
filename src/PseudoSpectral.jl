@@ -1,6 +1,6 @@
 module PseudoSpectral
 
-export pseudospectral_problem
+export pseudospectral_problem, reaction_operator, diffusion_operator
 
 using SciMLBase, FFTW, Symbolics
 
@@ -10,21 +10,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
     u0 = copy(u0)
     n = size(u0,1)
     m = size(u0,2)
+
     plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
     plan! * u0
 
-    # Get arrays of Symbolics variables for reaction and diffusion parameters.
-    rs = sort_params(setdiff(union(Symbolics.get_variables.(reaction_rates)...), species))
-    ds = sort_params(union(Symbolics.get_variables.(diffusion_rates)...))
-    
-    R = build_r!(species, reaction_rates, u0, rs, plan!)
-    D = build_d!(diffusion_rates, u0, ds)
-
-
-    
-
-    # update_coefficients!(D,u0,ps,0.0) # Must be called before first step. TODO Determine whether replaced by remake_params.
-    # update_coefficients!(R,u0,ps,0.0)
+    R, rs = reaction_operator(species, reaction_rates, u0, plan!)
+    D, ds = diffusion_operator(diffusion_rates, u0)
 
     prob = SplitODEProblem(D, R, vec(u0), tspan, nothing; kwargs...)
 
@@ -50,10 +41,10 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
     make_problem, transform
 end
 
-
 "Build function for the reaction component."
-function build_r!(species, reaction_rates, u0, ps, plan!)
+function rection_operator(species, reaction_rates, u0, plan!)
     (n,m) = size(u0)
+    ps = get_parameters(reation_rates, species)
     @variables u[1:n, 1:m]
     @variables p[1:n, 1:length(ps)]
     # Do clever things to make only spatially varying parameters expand?
@@ -70,12 +61,13 @@ function build_r!(species, reaction_rates, u0, ps, plan!)
         plan! * du
         nothing
     end
-    ODEFunction(f̂!; jac=fjac!)
+    ODEFunction(f̂!; jac=fjac!), ps
 end
 
 "Build linear operator for the diffusion component."
-function build_d!(diffusion_rates, u0, ps)
+function diffusion_operator(diffusion_rates, u0)
     n = size(u0,1)
+    ps = get_parameters(diffusion_rates)
     k = 0:n-1
     h = 1 / (n-1) # 2pi?
     k² = @. (4/h^2) * sin(k*pi/(2*(n-1)))^2  # Correction from (k/2pi h)^2 for the discrete transform.
@@ -83,9 +75,11 @@ function build_d!(diffusion_rates, u0, ps)
     (f,f!) = Symbolics.build_function(λ, ps; expression=Val{false})
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ, p.d)
-    DiagonalOperator(λ0; update_func! = update!)
+    DiagonalOperator(λ0; update_func! = update!), ps
 end
 
+"Extract parameters from a set of expressions and sort them."
+get_parameters(exprs, vars=[]) = sort_params(setdiff(union(Symbolics.get_variables.(exprs)...), vars))
 
 struct Parameters
     u # Working array for dct.
@@ -93,8 +87,6 @@ struct Parameters
     d # Diffusion parameter vector.
     state # Only used for metadata.
 end
-
-sort_params(p) = sort(p, by=nameof)
 
 end
 

@@ -42,7 +42,7 @@ diffusion_parameters(model::Model) = union(Catalyst.parameters.(model.diffusion.
 reaction_rates(model) = Catalyst.assemble_oderhs(model.reaction, species(model))
 function diffusion_rates(model::Model, default=0.0)
     dict = Dict(r.species => r.rate for r in model.diffusion.spatial_reactions)
-    subst(species(model), dict, default)
+    Symbolics.Num.(subst(species(model), dict, default))
 end
 num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
@@ -118,289 +118,6 @@ function DiffusionSystem(L, body::Expr)
     L isa Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
 end
 
-
-const nq = 100
-const q2 = 10 .^(range(-2,stop=2,length=nq))
-const n_denser = (range(0,stop=1,length=100))
-const n_gridpoints = 128
-
-        
-function returnParam(type, ps,ics, i)
-    n_params = length(ps)
-    n_species = length(ics)
-    p = zeros(type,n_params)
-    u₀ = zeros(type,n_species)
-    ind = CartesianIndices(Tuple([length.(ics); length.(ps)]))[Int(i)]
-    for j in 1:n_species
-        u₀[j] = ics[j][ind[j]]
-    end
-    for j in 1:n_params
-        p[j] = ps[j][ind[j+n_species]]
-    end
-    return p,u₀
-end
-
-function returnD(ds, i)
-    n_species = length(ds)
-    D = zeros(Float64,n_species)
-    ind = CartesianIndices(Tuple(length.(ds)))[Int(i)]
-    for j in 1:n_species
-        D[j] = ds[j][ind[j]]
-    end
-    return D
-end
-
-function computeStability(J)
-    # compute general condition for Turing instability, from: https://doi.org/10.1103/PhysRevX.8.021071
-    n_species = size(J)[1]
-    if maximum(real(eigvals(J))) > 0
-        return 2  ## steady state is unstable
-    else
-        for subset in combinations(1:n_species)
-            if ((-1)^length(subset)*det(J[subset,subset])) < 0
-                return 1 ## J is not a P_0 matrix
-            end
-        end
-    end
-    return 0 ## J is a P_0 matrix
-end
-    
-
-function isTuring(J,D,q2_input)
-
-    # determine whether any eigenvalue has a real positive part across range of wavevectors (q2_input)
-    #       - if yes, then store relevant variables
-
-    max_eig = zeros(length(q2_input))
-
-    Threads.@threads for i in eachindex(q2_input)
-        max_eig[i] = maximum(real(eigvals(J - diagm(q2_input[i]*D))))
-    end
-
-    index_max = findmax(max_eig)[2]
-
-    if findmax(max_eig)[1] > 0 & index_max < nq 
-        if max_eig[length(q2_input)] < 0
-            real_max = max_eig[index_max]
-            q2max = sqrt(q2_input[index_max])
-            qmax = sqrt(q2max)
-            eigenVals = eigen(J - diagm(q2_input[index_max]*D))
-            phase = sign.(eigenVals.vectors[:,findmax(real(eigenVals.values))[2]])
-            if real(phase[1]) < 0
-                phase = phase * -1
-            end
-            M = eigvals(J - diagm(q2max*D))
-            non_oscillatory = Bool(imag(M[findmax(real(M))[2]]) == 0)
-            
-            return qmax, phase, real_max, non_oscillatory
-        else
-            return 0,0,0,0
-        end
-    else
-        return 0,0,0,0
-    end
-end
-
-
-
-function identifyTuring(sol, ds, jacobian)
-
-    # Returns turingParameters that satisfy diffusion-driven instability for each steady state in sol, and diffusion constants in ds. 
-    #       - idx_ps refers to the parameter combinations (steady states [sol] are computed across parameter combinations, and do not depend on ds)
-    #       - idx_ds refers to the diffusion constant combinations
-    #       - idx_turing refers to the  combinations
-
-
-    idx_turing = 1
-    turingParameters = Array{save_turing, 1}(undef, 0)
-    for solᵢ in sol
-        if SciMLBase.successful_retcode(solᵢ) && minimum(solᵢ) >= 0
-            J = jacobian(Array(solᵢ),solᵢ.prob.p,0.0)
-            if computeStability(J) == 1
-                for idx_ds in 1:prod(length.(ds))
-                    qmax, phase, real_max, non_oscillatory = isTuring(J,returnD(ds,idx_ds),q2)
-                    if qmax > 0
-                        push!(turingParameters,save_turing(solᵢ,solᵢ.prob.p,returnD(ds,idx_ds),solᵢ.prob.u0,phase,2*pi/qmax, real_max, non_oscillatory,idx_turing))
-                        idx_turing = idx_turing + 1
-                    end
-                end
-            end
-        end
-    end
-    return StructArray(turingParameters)
-end
-
-"""
-    get_params(model, turing_param)
-
-For a given `model` and a *single* pattern-forming parameter set, `turing_param`, this function creates a corresponding dictionary of parameter values.
-"""
-function get_params(model, turing_param)
-    length(turing_param.wavelength) > 1 && error("Please input only a single parameter set, not multiple (e.g., turing_params[1] instead of turing_params)")
-    rs = Dict(zip(nameof.(reaction_parameters(model)), turing_param.reaction_params))
-    ds = Dict(zip(nameof.(diffusion_parameters(model)), turing_param.diffusion_constants))
-    merge(rs, ds)
-end
-
-
-"""
-    get_param(model, turing_params, name, type)
-
-For a given `model` and a (potentially large) number of pattern-forming parameter sets, `turing_params`, this function extracts the parameter values prescribed by the input `name`. For reaction parameters, used `type="reaction"`, for diffusion constants, use `type="diffusion"`.
-
-Example:
-
-```julia
-δ₁ = get_param(model, turing_params,"δ₁","reaction")
-D_COMPLEX = get_param(model, turing_params,"COMPLEX","diffusion")
-```
-"""
-function get_param(model, turing_params, name, type)
-    output = Array{Float64,1}(undef,0)
-    if type == "reaction"
-        labels = []
-        for p in parameters(model)
-            push!(labels,nameof(p))
-        end
-        index = findall(labels .== name)
-        if length(index) == 0
-            error("Please be sure to enter the correct parameter name and/or parameter type (reaction or diffusion); it should match the original definition in model")
-        end
-        for i in eachindex(turing_params)
-            push!(output,turing_params[i].reaction_params[index][1])
-        end
-    elseif type == "diffusion"
-        labels = []
-        for state in species(model)
-            push!(labels,nameof(state))
-        end
-        index = findall(labels .== name)
-        if length(index) == 0
-            error("Please be sure to enter the correct parameter name and/or parameter type (reaction or diffusion); it should match the original definition in model")
-        end
-        for i in eachindex(turing_params)
-            push!(output,turing_params[i].diffusion_constants[index][1])
-        end
-    end
-    return output
-end
-
-"""
-    returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e-8, reltol=1e-6, tspan=1e4,ensemblealg=EnsembleThreads(),batch_size=1e4)
-
-Return a `save_turing` object of parameters that are predicted to be pattern forming.
-
-Required inputs:
-- `model`: specified via the `@reaction_network` macro
-- `params`: all reaction and diffusion parameters, in a Dict or collection of pairs.
-
-Optional inputs:
-- `batch_size`: the number of parameter sets to consider at once. Increasing/decreasing from the default value may improve speed.  
-
-Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
-- `maxiters`: maximum number of iterations to reach steady state (otherwise simulation terminates)
-- `alg`: ODE solver algorithm
-- `abstol` and `reltol`: tolerance levels of solvers
-- `tspan`: maximum time allowed to reach steady state (otherwise simulation terminates)
-- `ensemblealg`: ensemble simulation method
-
-"""
-function returnTuringParams(model, params; maxiters = 1e3,alg=Rodas5(),abstol=1e-8, reltol=1e-6, tspan=1e4,ensemblealg=EnsembleThreads(),batch_size=1e4)
-    params = Dict.(params)
-    # read in parameters (ps), diffusion rates (ds), and initial conditions (ics)
-    ps = [reaction_parameters(model,ps, 0.0) for ps in params]
-    ds = [diffusion_rates(model, ps, 1.0) for ps in params]
-    ics = initial_conditions(model, 1.0)
-    n_params = num_reaction_params(model)
-    n_species = num_species(model)
-  
-
-    # convert reaction network to ODESystem
-    odesys = ODESystem(model)
-
-    # build jacobian function
-    jac = ModelingToolkit.generate_jacobian(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    J = ModelingToolkit.eval(jac)
-    jacobian(u,p,t) = J(u,p,t)
-    
-    # build ODE function
-    f_gen = ModelingToolkit.generate_function(odesys,expression = Val{false})[1] #false denotes function is compiled, world issues fixed
-    f_oop = ModelingToolkit.eval(f_gen)
-    f_ode(u,p,t) = f_oop(u,p,t)
-    
-    # Build optimized Jacobian and ODE functions using Symbolics.jl
-
-    @variables uₛₛ[1:n_species]
-    @parameters pₛₛ[1:n_params]
-    
-    duₛₛ = Symbolics.simplify.(f_ode(collect(uₛₛ),collect(pₛₛ),0.0))
-    
-    fₛₛ = eval(Symbolics.build_function(duₛₛ,vec(uₛₛ),pₛₛ;
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-    jacₛₛ = Symbolics.sparsejacobian(vec(duₛₛ),vec(uₛₛ))
-    fjacₛₛ = eval(Symbolics.build_function(jacₛₛ,vec(uₛₛ),pₛₛ,
-                parallel=Symbolics.SerialForm(),expression = Val{false})[2]) #index [2] denotes in-place, mutating function
-
-
-    # separate parameter screen into batches
-    turing_params = Array{save_turing, 1}(undef, 0)
-    n_total = length(ps)
-    n_batches = Int(ceil(n_total/batch_size))
-    progressMeter = Progress(n_batches; desc="Screening parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
- 
-    # Define the steady state problem
-    prob_fn = ODEFunction((du,u,p,t)->fₛₛ(du,vec(u),p), jac = (du,u,p,t) -> fjacₛₛ(du,vec(u),p), jac_prototype = similar(jacₛₛ,Float64))
-
-    function ss_condition(u,t,integrator)
-            du = similar(u)
-            fₛₛ(du,vec(u),integrator.p)
-            return norm(du) < 1e-6   # steady state tolerance
-    end
-    
-    if ensemblealg isa EnsembleThreads
-        p = zeros(Float64,length(ps))
-        u₀ = zeros(Float64,length(ics))
-        prob = SteadyStateProblem(prob_fn,u₀,p)
-        callback = nothing
-        alg = DynamicSS(alg; tspan=tspan)
-    else
-        p = zeros(Float32,length(ps))
-        u₀ = zeros(Float32,length(ics))
-        tspan = Float32.(tspan)
-        prob = ODEProblem(prob_fn,u₀,tspan, p)
-        callback = DiscreteCallback(ss_condition, int -> terminate!(int))
-    end
-
-    for batch_number in 1:n_batches
-        starting_index = (batch_number - 1)*batch_size
-        final_index = min(batch_number*batch_size,n_total)
-        n_batch = final_index - starting_index
-        append!(turing_params,returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian, callback; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg))
-        next!(progressMeter)
-    end
-    println(string(length(turing_params),"/",prod([length.(ps); length.(ics); length.(ds)])," parameters are pattern forming"))
-
-    return StructArray(turing_params)
-end
-
-function returnTuringParams_batch_single(n_batch, starting_index, ps, ds, ics, prob, jacobian, callback; maxiters = maxiters,alg=alg,abstol=abstol, reltol=reltol, tspan=tspan,ensemblealg=ensemblealg)
-
-    # Construct function to screen through parameters
-    function prob_func(prob,i,repeat)
-      tmp1, tmp2 = returnParam(typeof(prob.u0[1]), ps,ics,(i+starting_index))
-      remake(prob; u0=tmp2, p=tmp1)
-    end
-    
-    ensemble_prob = EnsembleProblem(prob,prob_func=prob_func)
-
-    sol = solve(ensemble_prob,maxiters=maxiters,alg,ensemblealg,callback=callback, trajectories=n_batch,verbose=false,abstol=abstol, reltol=reltol, save_everystep = false, progress=true)
-
-    # Determine whether the steady state undergoes a diffusion-driven instability
-    return identifyTuring(sol, ds, jacobian)
-
-end
-
-
 function createIC(model, n)
     seed!(model)
     m = num_species(model)
@@ -409,7 +126,7 @@ function createIC(model, n)
 end
 
 """
-    simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=nothing, dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
+    simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=ETDRK4(), dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8, maxiters = 1e5)
 
 Simulate `model` for a single parameter set `param`.
 
@@ -427,7 +144,7 @@ Additional Inputs
 - `dx`: distance between points in spatial discretisation.
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
-function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=nothing, dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, maxrepeats = 4, kwargs...)
+function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, maxrepeats = 4, kwargs...)
     n = num_verts
     
     # Ensure params is a vector.
@@ -439,11 +156,10 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
 
     # Replace parameter names with actual Symbolics variables.
-    ps = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
+    ps = lookup_params(params)
 
     u0 = createIC(model, n)
-    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
    
     progress = Progress(length(ps); desc="Simulating parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
@@ -470,10 +186,15 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
 
     ensemble_prob = EnsembleProblem(make_prob(ps[1]); output_func=output_func_, prob_func=prob_func)
 
-    alg = something(alg, ETDRK4())
     sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true, kwargs...)
     single ? sol[1] : sol
 end
+
+function steady_state_callback(reltol=1e-4,abstol=1e-4)
+    condition(u,t,integrator) = isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol)
+    DiscreteCallback(condition, terminate!)
+end
+
 
 """
     filter_params(f,model,params; kwargs...)
@@ -501,6 +222,48 @@ function filter_params(f, model, params; kwargs...)
     params[pass]
 end
 
+
+function turing_wavenumbers(model, params; k=logrange(0.1,10,100), tspan=1e4, alg=Rodas5(), kwargs...)
+    u0 = createIC(model,1)
+    ps = lookup_params(params)
+
+    du = reaction_rates(model)
+    u = species(model)
+    p = parameters(model)
+    t = ()
+    (f,f!) = Symbolics.build_function(du, u, p, t; expression=Val{false})
+    jac = Symbolics.jacobian(du,u; simplify=true)
+    (fjac,fjac!) = Symbolics.build_function(jac, u, p, t; expression=Val{false})
+
+    R = ODEFunction(f!; jac=fjac!)
+    prob = SteadyStateProblem(R, u0, [ps[1][k] for k in p])
+
+    d = diffusion_rates(model)
+    (D,D!) = Symbolics.build_function(diagm(d), p; expression=Val{false})
+
+    k² = k.^2
+    function output_func(sol,i)
+        SciMLBase.successful_retcode(sol) || begin @show sol.original.errors; return (missing, false) end
+        local p = sol.prob.p
+        J = fjac(sol.u, p, 0.0)
+        real_max,i = findmax(real(eigvals(J - D(p) * k²)[end]) for k² in k²)
+        λ = real_max > 0.0 ? 2pi/k[i] : 0.0
+        (λ, false)
+    end
+
+    function prob_func(prob,i,repeat)
+        remake(prob, p=[ps[i][key] for key in p])
+    end
+
+    ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
+    alg = DynamicSS(alg; tspan=tspan)
+    sol = solve(ensemble_prob, alg; trajectories=length(ps), kwargs...)
+    sol.u
+end
+
+
+"Replace parameter names with actual Symbolics variables."
+lookup_params(params) = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
 
 ## Plotting functions
 
