@@ -224,7 +224,14 @@ end
 
 
 function turing_wavenumbers(model, params; k=logrange(0.1,10,100), tspan=1e4, alg=Rodas5(), kwargs...)
-    u0 = createIC(model,1)
+    # Ensure params is a vector.
+    if params isa Vector
+        single=false
+    else
+        params = [params]
+        single = true # Unpack vector at the end if we only have one parameter set.
+    end
+    u0 = ones(num_species(model))
     ps = lookup_params(params)
 
     du = reaction_rates(model)
@@ -243,8 +250,9 @@ function turing_wavenumbers(model, params; k=logrange(0.1,10,100), tspan=1e4, al
 
     k² = k.^2
     function output_func(sol,i)
-        SciMLBase.successful_retcode(sol) || begin @show sol.original.errors; return (missing, false) end
+        SciMLBase.successful_retcode(sol) || (missing, false)
         local p = sol.prob.p
+
         J = fjac(sol.u, p, 0.0)
         real_max,i = findmax(real(eigvals(J - D(p) * k²)[end]) for k² in k²)
         λ = real_max > 0.0 ? 2pi/k[i] : 0.0
@@ -257,8 +265,8 @@ function turing_wavenumbers(model, params; k=logrange(0.1,10,100), tspan=1e4, al
 
     ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
     alg = DynamicSS(alg; tspan=tspan)
-    sol = solve(ensemble_prob, alg; trajectories=length(ps), kwargs...)
-    sol.u
+    sol = solve(ensemble_prob, alg; trajectories=length(ps), verbose=true, kwargs...)
+    single ? sol[1] : sol.u
 end
 
 
