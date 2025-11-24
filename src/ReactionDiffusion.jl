@@ -12,7 +12,7 @@ import Catalyst.LatticeReactionSystem
 export Model, species, parameters, reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_conditions, noise
-export simulate, filter_params, product, dict
+export simulate, turing_wavelength, filter_params, product, dict
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export @diffusion_system
 export plot, interactive_plot
@@ -223,7 +223,7 @@ function filter_params(f, model, params; kwargs...)
 end
 
 
-function turing_wavenumbers(model, params; k=logrange(0.1,10,100), tspan=1e4, alg=Rodas5(), kwargs...)
+function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
     # Ensure params is a vector.
     if params isa Vector
         single=false
