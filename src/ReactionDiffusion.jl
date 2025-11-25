@@ -11,7 +11,8 @@ import Catalyst.LatticeReactionSystem
 
 export Model, species, parameters, reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
-    domain_size, initial_conditions, noise
+    domain_size, initial_conditions, noise,
+    reaction_rates, diffusion_rates
 export simulate, turing_wavelength, filter_params, product, dict
 export @reaction_network, @transport_reaction # Re-export Catalyst DSL.
 export @diffusion_system
@@ -104,18 +105,19 @@ Define a spatial domain of length and a set of diffusion rates. Values can be ei
 - `S`: Species name.
 """
 macro diffusion_system(L, body)
-    DiffusionSystem(L,body)
+    diffusion_system(L,body,__source__)
 end
 
 macro diffusion_system(body)
-    DiffusionSystem(1,body)
+    diffusion_system(1,body,__source__)
 end
 
-function DiffusionSystem(L, body::Expr)
+function diffusion_system(L, body::Expr, source)
     Base.remove_linenums!(body)
+    ps_expr = Expr(:(=), esc(L), Expr(:ref, Expr(:macrocall, Symbol("@parameters"), source, L), 1))
     trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
     ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
-    L isa Symbol ? Expr(:block, :(@parameters $L), ds_expr) : ds_expr
+    L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
 end
 
 function createIC(model, n)
@@ -156,7 +158,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
 
     # Replace parameter names with actual Symbolics variables.
-    ps = lookup_params(params)
+    ps = lookup_params.(params)
 
     u0 = createIC(model, n)
     make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
@@ -232,7 +234,7 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
         single = true # Unpack vector at the end if we only have one parameter set.
     end
     u0 = ones(num_species(model))
-    ps = lookup_params(params)
+    ps = lookup_params.(params)
 
     du = reaction_rates(model)
     u = species(model)
@@ -271,7 +273,7 @@ end
 
 
 "Replace parameter names with actual Symbolics variables."
-lookup_params(params) = [Dict((@parameters $k)[1] => v for (k,v) in p) for p in params]
+lookup_params(params) = Dict((@parameters $k)[1] => v for (k,v) in params)
 
 ## Plotting functions
 
