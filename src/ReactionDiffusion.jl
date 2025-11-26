@@ -4,6 +4,8 @@ include("PseudoSpectral.jl")
 using .PseudoSpectral
 using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
 using Makie, Observables, Printf # Plotting
+using FiniteDiff, FiniteDiff #temp?
+
 # Methods and constructors to be extended:
 import Random.seed!
 import ModelingToolkit.ODESystem
@@ -222,6 +224,81 @@ function filter_params(f, model, params; kwargs...)
     sol = simulate(model,params; output_func=f, verbose=false, kwargs...)
     pass = [ismissing(u) ? false : u for u in sol.u]
     params[pass]
+end
+
+
+function optimise(cost, model, params; η=0.01, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
+    n = num_verts
+
+    # Replace parameter names with actual Symbolics variables.
+    ps = lookup_params(params)
+
+    u0 = createIC(model, n)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+
+    pks = keys(ps)
+    p = collect(values(ps))
+    
+    function f(p)
+        local ps = Dict(zip(pks, p))
+        prob = make_prob(ps)
+        sol = solve(prob, alg=alg)
+        u=transform(sol.u[end])
+        cost(u)
+    end
+    for i in 1:10
+        @show p
+        J = FiniteDiff.finite_difference_jacobian(f, p)
+        p -= η * vec(J)
+    end
+
+    Dict(zip(pks, p))
+end
+
+function optimise_scale(cost, model, params, L; η=0.01, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
+    n = num_verts
+    # Replace parameter names with actual Symbolics variables.
+    ps = lookup_params(params)
+    #L = (@parameters L)[1]
+
+    u0 = createIC(model, n)
+    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+
+    pks = parameters(model)
+    p = [ps[k] for k in pks]
+
+    function f(p)
+        ps1 = Dict(zip(pks, p))
+        ps2 = copy(ps1)
+        l = ps1[L]
+        ps2[L] = l/2
+        prob1 = make_prob(ps1)
+        prob2 = make_prob(ps2)
+
+        sol1 = solve(prob1; alg=alg)
+        sol2 = solve(prob1; alg=alg)
+        (SciMLBase.successful_retcode(sol1) && SciMLBase.successful_retcode(sol1)) || return NaN
+        u1=transform(sol1.u[end])
+        u2=transform(sol2.u[end])
+
+        cost(u1,u2)
+    end
+    # Adam
+
+    m = zero(p)
+    v = zero(p)
+    β₁ = 0.9; β₂=0.999
+    for i in 1:20
+        J = vec(FiniteDiff.finite_difference_jacobian(f, p))
+        m = β₁*m + (1-β₁) * J
+        v = β₂*v + (1-β₂) * J.^2
+        m̂ = m/(1-β₁^i)
+        v̂ = v/(1-β₂^i)
+        p .= p - η * m̂./(sqrt.(v̂) .+ eps())
+        @show norm(J)
+    end
+
+    Dict(zip(nameof.(pks), p))
 end
 
 
