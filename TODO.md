@@ -7,3 +7,4 @@
 - Support default parameters as defined with `@parameters a=2.0` etc.
 - Implement @initial_conditions.
 - Access solutions by species rather than integer index.
+- Use `only`.
