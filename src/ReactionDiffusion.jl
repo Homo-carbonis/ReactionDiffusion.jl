@@ -71,7 +71,8 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
 end
 
 initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
-
+import .PseudoSpectral.pseudospectral_problem
+PseudoSpectral.pseudospectral_problem(model, u0, tspan; kwargs...) = PseudoSpectral.pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; kwargs...)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 Random.seed!(model::Model) = Random.seed!(model.seed)
@@ -122,6 +123,7 @@ function diffusion_system(L, body::Expr, source)
     L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
 end
 
+# TODO: replace
 function createIC(model, n)
     seed!(model)
     m = num_species(model)
@@ -163,7 +165,7 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     ps = lookup_params.(params)
 
     u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
    
     progress = Progress(length(ps); desc="Simulating parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
@@ -234,7 +236,7 @@ function optimise(cost, model, params; η=0.01, tspan=Inf, alg=ETDRK4(), dt=0.1,
     ps = lookup_params(params)
 
     u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
 
     pks = keys(ps)
     p = collect(values(ps))
@@ -262,7 +264,7 @@ function optimise_scale(cost, model, params, L; η=0.01, tspan=Inf, alg=ETDRK4()
     #L = (@parameters L)[1]
 
     u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
 
     pks = parameters(model)
     p = [ps[k] for k in pks]
@@ -388,7 +390,7 @@ function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, n
 
     u0 = createIC(model, n)
     steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    make_prob, transform = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
    
 	fig=Figure()
 	ax = Axis(fig[1,1])

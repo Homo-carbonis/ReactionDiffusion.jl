@@ -3,41 +3,65 @@ includet("PseudoSpectral.jl")
 using ReactionDiffusion
 using .PseudoSpectral
 using OrdinaryDiffEqExponentialRK
-using Symbolics
+using Symbolics, Catalyst
 using FiniteDiff
 import ReactionDiffusion
 using LinearAlgebra
 using Chain
+
+"Map integers to subscript characters."
+sub(i) = join(Char(0x2080 + d) for d in reverse!(digits(i)))
+"Subscript a symbol with `i...` separated by `_`."
+subscript(X, i...) = Symbol(X, join(sub.(i), "_"))
+"Build an array of subscripted symbols."
+function subscripts(name, dim)
+    dim = tuple(dim...) # ensure tuple
+    ixs = Iterators.product(range.(1,dim)...)
+    [subscript(name, r...) for r in ixs]
+end
+
+"Define a set of subscripted species and return them as a vector."
+function defspecies(name, t, n)
+    names = subscripts(name, n)
+    [only(@species $n(t)) for n in names]
+end
+
+function defparams(name, dim)
+    names = subscripts(name, dim)
+    [only(@parameters $n) for n in names]
+end
+
+"Return a vector of all polynomial terms in `vars`` up to degree `n``."
+polynomial_terms(vars, n) = @chain fill([1;vars], n) Iterators.product(_...) prod.(_) vec
+
 function rational_system(num_species, degree)
     t = default_t()
-    @species X(t)
-    names = @. Symbol(:X, Symbolics.map_subscripts(1:num_species))
-    X = [X[i] for i in 1:num_species]
-    terms = @chain fill([1;X],3) Iterators.product(_...) prod.(_) vec
-    R = Symbolics.variables(:R, 1:num_species, 1:length(terms))
-    D = Symbolics.variables(:D, 1:num_species)
-    @variables L
+    X = defspecies(:X, t, num_species)
+    terms = polynomial_terms(X, degree)
+    R = defparams(:R, (2*num_species, length(terms)))
+    D = defparams(:D, num_species)
+    @parameters L
+    rates = R*terms
+    rxs₊ = [Reaction(r,nothing,[x]) for (r,x) in zip(rates[1:num_species], X)]
+    rxs₋ = [Reaction(r,[x],nothing) for (r,x) in zip(rates[num_species+1:end], X)]
+    rxs = [rxs₊ ; rxs₋]
+    @named reaction = ReactionSystem(rxs,t)
+    dxs = [TransportReaction(d/L^2, x) for (d,x) in zip(D, X)]
+    diffusion = ReactionDiffusion.DiffusionSystem(L, dxs)
+    model = Model(reaction,diffusion)
+end
 
+bernoulli(p) = rand() < p 
+bernoulli(p,n) = rand(n) .< p 
 
-function optimise_scale(R0,D0; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
-    n = num_verts
-    num_species,degree = size(R0)
-    u0 = abs.(σ * randn(num_verts, num_species))
-    X = Symbolics.variables(:X, 1:num_species)
-    terms = @chain fill([1;X],3) Iterators.product(_...) prod.(_) vec
-    R = Symbolics.variables(:R, 1:num_species, 1:length(terms))
-    D = Symbolics.variables(:D, 1:num_species)
-    @variables L
-
-    t =default_t()
-    @
-    reaction_rates = R*terms
-    diffusion_rates = D./L^2
-    make_prob, transform = pseudospectral_problem(X, reaction_rates, diffusion_rates, u0, tspan; callback=ReactionDiffusion.steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
-
-    ps = [vec(R) ; vec(D) ; L]
-    p = [vec(R0); vec(D0); 1]
-    
+function optimise_scale(num_species, degree; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
+    model = rational_system(num_species, degree)
+    u0 = createIC(model,1) #??
+    make_prob,transform = pseudospectral_problem(model, u0, tspan)
+    nr = num_reaction_params(model)
+    nd = num_diffusion_params(model)
+    R = σ * randn(nr) .* bernoulli(0.2, nr)
+    D = σ * randn(nd)
     function cost(p)
         ps1 = Dict(zip(ps, p))
         ps2 = copy(ps1)
@@ -81,6 +105,20 @@ function find_convergent(make_prob, ps, μ, σ)
         sol = solve(prob, alg=ETDRK4(), verbose=false)
         SciMLBase.successful_retcode(sol) && return p
         i%100 == 0 && println(i)
+    end
+    error("FAILURE!")
+end
+
+
+function find_turing(model, σ=100)
+    n=100
+    for i in 1:1000
+        ps = nameof.(ReactionDiffusion.parameters(model))
+        p = [Dict(zip(ps, abs.(σ * rand(length(ps))))) for i in 1:n]
+        λ = turing_wavelength(model, p)
+        println(i)
+        nonzeros = λ.>0.0
+        any(nonzeros) && return p[nonzeros]
     end
     error("FAILURE!")
 end
