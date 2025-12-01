@@ -8,6 +8,7 @@ using FiniteDiff
 import ReactionDiffusion
 using LinearAlgebra
 using Chain
+using StatsBase: sample, Weights
 
 "Map integers to subscript characters."
 sub(i) = join(Char(0x2080 + d) for d in reverse!(digits(i)))
@@ -31,6 +32,11 @@ function defparams(name, dim)
     [only(@parameters $n) for n in names]
 end
 
+function defparam(name, i...)
+    name = subscript(name, i...)
+    only(@parameters $name)
+end
+
 "Return a vector of all polynomial terms in `vars`` up to degree `n``."
 polynomial_terms(vars, n) = @chain fill([1;vars], n) Iterators.product(_...) prod.(_) vec
 
@@ -48,11 +54,45 @@ function rational_system(num_species, degree)
     @named reaction = ReactionSystem(rxs,t)
     dxs = [TransportReaction(d/L^2, x) for (d,x) in zip(D, X)]
     diffusion = ReactionDiffusion.DiffusionSystem(L, dxs)
-    model = Model(reaction,diffusion)
+    Model(reaction,diffusion)
 end
 
-bernoulli(p) = rand() < p 
-bernoulli(p,n) = rand(n) .< p 
+function hill_system(num_species, sparsity=0.6)
+    t = default_t()
+    X = defspecies(:X, t, num_species)
+    graph = random_signed_digraph(num_species, sparsity)
+
+    rates₊ = defparams(:μ, num_species)
+    rates₋ = defparams(:δ, num_species)
+    for i in eachindex(X)
+        for j in eachindex(X)
+            sign = graph[i,j]
+            iszero(sign) && continue
+            x = X[j]
+            K = defparam(:K, i, j)
+            n = defparam(:n, i, j)
+            f = sign > 0 ? hill : hillr
+            rates₊[i] *= f(x, 1, K, n)
+        end
+    end
+    X1 = [[x] for x in X]
+    rxs = [Reaction.(rates₊, nothing, X1) ; Reaction.(rates₋, X1, nothing)]
+    @named reaction = ReactionSystem(rxs, t)
+    D = defparams(:D, num_species)
+    @parameters L
+    dxs = [TransportReaction(d/L^2, x) for (d,x) in zip(D, X)]
+    diffusion = ReactionDiffusion.DiffusionSystem(L, dxs)
+    Model(reaction,diffusion)
+end
+
+
+function random_signed_digraph(n, sparsity)
+    w = (1-sparsity)/2
+    weights = Weights([w, sparsity, w], 1.0)
+    sample([-1,0,1], weights, (n,n))
+end
+
+
 
 function optimise_scale(num_species, degree; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
     model = rational_system(num_species, degree)
@@ -122,3 +162,4 @@ function find_turing(model, σ=100)
     end
     error("FAILURE!")
 end
+
