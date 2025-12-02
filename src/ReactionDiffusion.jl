@@ -6,11 +6,6 @@ using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock
 using Makie, Observables, Printf # Plotting
 using FiniteDiff, FiniteDiff #temp?
 
-# Methods and constructors to be extended:
-import Random.seed!
-import ModelingToolkit.ODESystem
-import Catalyst.LatticeReactionSystem
-
 export Model, species, parameters, reaction_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_conditions, noise,
@@ -71,7 +66,6 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
 end
 
 initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
-import .PseudoSpectral.pseudospectral_problem
 PseudoSpectral.pseudospectral_problem(model, u0, tspan; kwargs...) = PseudoSpectral.pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; kwargs...)
 ModelingToolkit.ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
@@ -331,10 +325,11 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
 
     k² = k.^2
     function output_func(sol,i)
-        SciMLBase.successful_retcode(sol) || (missing, false)
+        SciMLBase.successful_retcode(sol) || return (missing, false)
         local p = sol.prob.p
 
         J = fjac(sol.u, p, 0.0)
+        any((!isfinite).(J)) && return (missing,false)
         real_max,i = findmax(real(eigvals(J - D(p) * k²)[end]) for k² in k²)
         λ = real_max > 0.0 ? 2pi/k[i] : 0.0
         (λ, false)
@@ -352,7 +347,8 @@ end
 
 
 "Replace parameter names with actual Symbolics variables."
-lookup_params(params) = Dict((@parameters $k)[1] => v for (k,v) in params)
+lookup_params(params::AbstractDict{Symbol, T}) where {T} = Dict((@parameters $k)[1] => v for (k,v) in params)
+lookup_params(params::AbstractDict{Num, T}) where {T} = params
 
 ## Plotting functions
 

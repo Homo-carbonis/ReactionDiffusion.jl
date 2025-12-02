@@ -1,11 +1,9 @@
 includet("PseudoSpectral.jl")
 
 using ReactionDiffusion
-using .PseudoSpectral
 using OrdinaryDiffEqExponentialRK
 using Symbolics, Catalyst
 using FiniteDiff
-import ReactionDiffusion
 using LinearAlgebra
 using Chain
 using StatsBase: sample, Weights
@@ -57,13 +55,13 @@ function rational_system(num_species, degree)
     Model(reaction,diffusion)
 end
 
-function hill_system(num_species, sparsity=0.6)
+function hill_system(graph)
+    num_params = size(graph,1)
     t = default_t()
-    X = defspecies(:X, t, num_species)
-    graph = random_signed_digraph(num_species, sparsity)
+    X = defspecies(:X, t, num_params)
 
-    rates₊ = defparams(:μ, num_species)
-    rates₋ = defparams(:δ, num_species)
+    rates₊ = defparams(:μ, num_params)
+    rates₋ = defparams(:δ, num_params)
     for i in eachindex(X)
         for j in eachindex(X)
             sign = graph[i,j]
@@ -78,7 +76,7 @@ function hill_system(num_species, sparsity=0.6)
     X1 = [[x] for x in X]
     rxs = [Reaction.(rates₊, nothing, X1) ; Reaction.(rates₋, X1, nothing)]
     @named reaction = ReactionSystem(rxs, t)
-    D = defparams(:D, num_species)
+    D = defparams(:D, num_params)
     @parameters L
     dxs = [TransportReaction(d/L^2, x) for (d,x) in zip(D, X)]
     diffusion = ReactionDiffusion.DiffusionSystem(L, dxs)
@@ -94,14 +92,13 @@ end
 
 
 
-function optimise_scale(num_species, degree; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
-    model = rational_system(num_species, degree)
-    u0 = createIC(model,1) #??
-    make_prob,transform = pseudospectral_problem(model, u0, tspan)
-    nr = num_reaction_params(model)
-    nd = num_diffusion_params(model)
-    R = σ * randn(nr) .* bernoulli(0.2, nr)
-    D = σ * randn(nd)
+function optimise_scale(model, p0; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
+    u0 = ReactionDiffusion.createIC(model,num_verts) #??
+    make_prob,transform = ReactionDiffusion.pseudospectral_problem(model, u0, tspan)
+    p0 = p0 |> sort |> ReactionDiffusion.lookup_params
+    L = only(@parameters L)
+    ps = keys(p0) |> collect
+    p = values(p0) |> collect
     function cost(p)
         ps1 = Dict(zip(ps, p))
         ps2 = copy(ps1)
@@ -109,22 +106,24 @@ function optimise_scale(num_species, degree; σ=0.01, η=0.01, λ=0.001, tspan=I
         prob1 = make_prob(ps1)
         prob2 = make_prob(ps2)
 
-        sol1 = solve(prob1; alg=alg, verbose=false)
-        sol2 = solve(prob2; alg=alg, verbose=false)
+        sol1 = solve(prob1; alg=alg, dt=dt, verbose=false)
+        sol2 = solve(prob2; alg=alg, dt=dt, verbose=false)
         (SciMLBase.successful_retcode(sol1) && SciMLBase.successful_retcode(sol1)) || return NaN
         u1=transform(sol1.u[end])
         u2=transform(sol2.u[end])
-        norm(u1-u2) + λ * sum(.!iszero.(p))/length(p)
+        norm(u1-u2) + λ * norm(p,1)
     end
 
-    p = find_convergent(make_prob,ps,p,100)
     # Adam
-
     m = zero(p)
     v = zero(p)
     β₁ = 0.02; β₂=0.001
     for i in 1:20
         J = vec(FiniteDiff.finite_difference_jacobian(cost, p))
+        if any(isnan.(J))
+            η /= 2
+            continue
+        end
         m = β₁*m + (1-β₁) * J
         v = β₂*v + (1-β₂) * J.^2
         m̂ = m/(1-β₁^i)
@@ -150,16 +149,16 @@ function find_convergent(make_prob, ps, μ, σ)
 end
 
 
-function find_turing(model, σ=100)
-    n=100
-    for i in 1:1000
-        ps = nameof.(ReactionDiffusion.parameters(model))
-        p = [Dict(zip(ps, abs.(σ * rand(length(ps))))) for i in 1:n]
-        λ = turing_wavelength(model, p)
+function find_turing(model, σ=100; batch_size=100, num_batches=10, kwargs...)
+    ps = nameof.(ReactionDiffusion.parameters(model))
+    for i in 1:num_batches
+        p = [Dict(zip(ps, abs.(σ * rand(length(ps))))) for i in 1:batch_size]
+        λ = turing_wavelength(model, p; kwargs...)
         println(i)
-        nonzeros = λ.>0.0
+        nonzeros = isnonzero.(λ)
         any(nonzeros) && return p[nonzeros]
     end
     error("FAILURE!")
 end
 
+isnonzero(x) = !(ismissing(x) || iszero(x))
