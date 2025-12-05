@@ -145,8 +145,12 @@ Additional Inputs
 - `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
 """
 function simulate(model, params; output_func=nothing, full_solution=false, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, maxrepeats = 4, kwargs...)
-    n = num_verts
-    
+    u0 = createIC(model, num_verts)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+    simulate(make_prob, transform, params; output_func=output_func, full_solution=full_solution, alg=alg, dt=dt, maxrepeats = maxrepeats, kwargs=kwargs)
+end
+
+function simulate(make_prob, transform, params; output_func=nothing, full_solution=false, alg=ETDRK4(), dt=0.1, maxrepeats = 4, kwargs...)
     # Ensure params is a vector.
     if params isa Vector
         single=false
@@ -156,19 +160,16 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
 
     # Replace parameter names with actual Symbolics variables.
-    ps = lookup_params.(params)
+    params = lookup.(params)
 
-    u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
-   
-    progress = Progress(length(ps); desc="Simulating parameter sets: ",dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
+    progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
     function output_func_(sol,i)
         repeat = sol.prob.p.state
         SciMLBase.successful_retcode(sol) || return (missing, repeat <= maxrepeats) # Rerun if solution failed.
         next!(progress) # Advance progress bar.
         if full_solution
-            t=sol.t
+            t = sol.t
             u = stack(transform(u) for u in sol.u)
         else
             t = sol.t[end]
@@ -179,14 +180,14 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     end
         
     function prob_func(prob, i, repeat)
-        p = ps[i]
+        p = params[i]
         dt = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
         prob = make_prob(p, repeat; dt=dt)
     end
 
-    ensemble_prob = EnsembleProblem(make_prob(ps[1]); output_func=output_func_, prob_func=prob_func)
+    ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=output_func_, prob_func=prob_func)
 
-    sol = solve(ensemble_prob, alg; trajectories=length(params), progress=true, kwargs...)
+    sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
     single ? sol[1] : sol
 end
 
@@ -217,86 +218,10 @@ end
 ```
 """
 function filter_params(f, model, params; kwargs...)
-    sol = simulate(model,params; output_func=f, verbose=false, kwargs...)
+    sol = simulate(model, params; output_func=f, verbose=false, kwargs...)
     pass = [ismissing(u) ? false : u for u in sol.u]
     params[pass]
 end
-
-
-function optimise(cost, model, params; η=0.01, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
-    n = num_verts
-
-    # Replace parameter names with actual Symbolics variables.
-    ps = lookup_params(params)
-
-    u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
-
-    pks = keys(ps)
-    p = collect(values(ps))
-    
-    function f(p)
-        local ps = Dict(zip(pks, p))
-        prob = make_prob(ps)
-        sol = solve(prob, alg=alg)
-        u=transform(sol.u[end])
-        cost(u)
-    end
-    for i in 1:10
-        @show p
-        J = FiniteDiff.finite_difference_jacobian(f, p)
-        p -= η * vec(J)
-    end
-
-    Dict(zip(pks, p))
-end
-
-function optimise_scale(cost, model, params, L; η=0.01, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
-    n = num_verts
-    # Replace parameter names with actual Symbolics variables.
-    ps = lookup_params(params)
-    #L = (@parameters L)[1]
-
-    u0 = createIC(model, n)
-    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
-
-    pks = parameters(model)
-    p = [ps[k] for k in pks]
-
-    function f(p)
-        ps1 = Dict(zip(pks, p))
-        ps2 = copy(ps1)
-        l = ps1[L]
-        ps2[L] = l/2
-        prob1 = make_prob(ps1)
-        prob2 = make_prob(ps2)
-
-        sol1 = solve(prob1; alg=alg)
-        sol2 = solve(prob1; alg=alg)
-        (SciMLBase.successful_retcode(sol1) && SciMLBase.successful_retcode(sol1)) || return NaN
-        u1=transform(sol1.u[end])
-        u2=transform(sol2.u[end])
-
-        cost(u1,u2)
-    end
-    # Adam
-
-    m = zero(p)
-    v = zero(p)
-    β₁ = 0.9; β₂=0.999
-    for i in 1:20
-        J = vec(FiniteDiff.finite_difference_jacobian(f, p))
-        m = β₁*m + (1-β₁) * J
-        v = β₂*v + (1-β₂) * J.^2
-        m̂ = m/(1-β₁^i)
-        v̂ = v/(1-β₂^i)
-        p .= p - η * m̂./(sqrt.(v̂) .+ eps())
-        @show norm(J)
-    end
-
-    Dict(zip(nameof.(pks), p))
-end
-
 
 function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
     # Ensure params is a vector.
@@ -307,7 +232,7 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
         single = true # Unpack vector at the end if we only have one parameter set.
     end
     u0 = ones(num_species(model))
-    ps = lookup_params.(params)
+    params = lookup.(params)
 
     du = reaction_rates(model)
     u = species(model)
@@ -318,7 +243,7 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
     (fjac,fjac!) = Symbolics.build_function(jac, u, p, t; expression=Val{false})
 
     R = ODEFunction(f!; jac=fjac!)
-    prob = SteadyStateProblem(R, u0, [ps[1][k] for k in p])
+    prob = SteadyStateProblem(R, u0, [params[1][k] for k in p])
 
     d = diffusion_rates(model)
     (D,D!) = Symbolics.build_function(diagm(d), p; expression=Val{false})
@@ -336,19 +261,20 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
     end
 
     function prob_func(prob,i,repeat)
-        remake(prob, p=[ps[i][key] for key in p])
+        remake(prob, p=[params[i][key] for key in p])
     end
 
     ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
     alg = DynamicSS(alg; tspan=tspan)
-    sol = solve(ensemble_prob, alg; trajectories=length(ps), verbose=true, kwargs...)
+    sol = solve(ensemble_prob, alg; trajectories=length(params), verbose=true, kwargs...)
     single ? sol[1] : sol.u
 end
 
 
 "Replace parameter names with actual Symbolics variables."
-lookup_params(params::AbstractDict{Symbol, T}) where {T} = Dict((@parameters $k)[1] => v for (k,v) in params)
-lookup_params(params::AbstractDict{Num, T}) where {T} = params
+lookup(name::Symbol) = only(@parameters $name)
+lookup(param::Num) = param
+lookup(params::AbstractDict) = Dict(lookup(k) => v for (k,v) in params)
 
 ## Plotting functions
 
@@ -399,8 +325,8 @@ function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, n
 
     sg = SliderGrid(fig[1,2], slider_specs...)
     function f(vals...)
-        p = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
-        prob = make_prob(p)
+        params = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
+        prob = make_prob(params)
         sol =  solve(prob, alg)
         transform(sol.u[end])
     end
