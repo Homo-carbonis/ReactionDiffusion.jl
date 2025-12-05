@@ -1,7 +1,7 @@
-includet("PseudoSpectral.jl")
+module GradientDescent
+export optimise
 
 using ReactionDiffusion
-using OrdinaryDiffEqExponentialRK
 using Symbolics, Catalyst
 using FiniteDiff
 using LinearAlgebra
@@ -90,40 +90,37 @@ function random_signed_digraph(n, sparsity)
     sample([-1,0,1], weights, (n,n))
 end
 
-
-
-function optimise_scale(model, p0; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, kwargs...)
+#
+function optimise(model, cost, params0; pmap=identity, η=0.01, β₁ = 0.02; β₂=0.001)
     u0 = ReactionDiffusion.createIC(model,num_verts) #??
-    make_prob,transform = ReactionDiffusion.pseudospectral_problem(model, u0, tspan)
-    p0 = p0 |> sort |> ReactionDiffusion.lookup_params
-    L = only(@parameters L)
-    ps = keys(p0) |> collect
-    p = values(p0) |> collect
-    function cost(p)
-        ps1 = Dict(zip(ps, p))
-        ps2 = copy(ps1)
-        ps2[L] = ps1[L]/2
-        prob1 = make_prob(ps1)
-        prob2 = make_prob(ps2)
+    make_prob, transform = ReactionDiffusion.pseudospectral_problem(model, u0, tspan)
+    params0 = sort(params0)
+    ps, p = unzip(p0)
 
-        sol1 = solve(prob1; alg=alg, dt=dt, verbose=false)
-        sol2 = solve(prob2; alg=alg, dt=dt, verbose=false)
-        (SciMLBase.successful_retcode(sol1) && SciMLBase.successful_retcode(sol1)) || return NaN
-        u1=transform(sol1.u[end])
-        u2=transform(sol2.u[end])
-        norm(u1-u2) + λ * norm(p,1)
+    _cost(p) = @chain p begin
+        zipdict(ps,_)
+        pmap
+        simulate(make_prob,transform, _)
+        cost
     end
 
-    # Adam
+    p = adam(_cost, _, η, β₁, β₂)
+    zipdict(ps, p)
+end
+
+function adam(cost, p, η, β₁, β₂; maxiters=100)
     m = zero(p)
     v = zero(p)
-    β₁ = 0.02; β₂=0.001
-    for i in 1:20
+    p_prev = p
+    for i in 1:maxiters
         J = vec(FiniteDiff.finite_difference_jacobian(cost, p))
+        norm(J) ≈ 0 && return p
         if any(isnan.(J))
+            p=p_prev
             η /= 2
             continue
         end
+        p_prev = p
         m = β₁*m + (1-β₁) * J
         v = β₂*v + (1-β₂) * J.^2
         m̂ = m/(1-β₁^i)
@@ -131,29 +128,19 @@ function optimise_scale(model, p0; σ=0.01, η=0.01, λ=0.001, tspan=Inf, alg=ET
         p .= p - η * m̂./(sqrt.(v̂) .+ eps())
         @show norm(J)
     end
-
-    Dict(zip(ps, p))
+    @warn "Maxiters exeeded. Optimum not found."
+    p
 end
 
-function find_convergent(make_prob, ps, μ, σ)
-    dims = size(μ)
-    p = similar(μ)
-    for i in 1:1000000
-        p .= abs.(μ + σ * randn(dims))
-        prob=make_prob(Dict(zip(ps, p)))
-        sol = solve(prob, alg=ETDRK4(), verbose=false)
-        SciMLBase.successful_retcode(sol) && return p
-        i%100 == 0 && println(i)
-    end
-    error("FAILURE!")
-end
+zipdict(keys,vals) = Dict(zip(keys,vals))
+unzip(dict) = (keys(dict),values(dict)) .|> collect
 
 
 function find_turing(model, σ=100; batch_size=100, num_batches=10, kwargs...)
     ps = nameof.(ReactionDiffusion.parameters(model))
     for i in 1:num_batches
-        p = [Dict(zip(ps, abs.(σ * rand(length(ps))))) for i in 1:batch_size]
-        λ = turing_wavelength(model, p; kwargs...)
+        params = [Dict(zip(ps, abs.(σ * rand(length(ps))))) for i in 1:batch_size]
+        λ = turing_wavelength(model, params; kwargs...)
         println(i)
         nonzeros = isnonzero.(λ)
         any(nonzeros) && return p[nonzeros]
@@ -162,3 +149,4 @@ function find_turing(model, σ=100; batch_size=100, num_batches=10, kwargs...)
 end
 
 isnonzero(x) = !(ismissing(x) || iszero(x))
+end

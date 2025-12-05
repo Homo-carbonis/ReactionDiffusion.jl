@@ -1,6 +1,8 @@
 module ReactionDiffusion
 
 include("PseudoSpectral.jl")
+include("GradientDescent.jl")
+
 using .PseudoSpectral
 using Catalyst, Symbolics, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, SteadyStateDiffEq, LinearAlgebra, Combinatorics, StructArrays, Random, ProgressMeter, RecipesBase, ProgressLogging
 using Makie, Observables, Printf # Plotting
