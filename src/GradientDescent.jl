@@ -1,7 +1,7 @@
 module GradientDescent
 export optimise
 
-using ReactionDiffusion
+using ..Util: defspecies, defparams 
 using Symbolics, Catalyst
 using FiniteDiff
 using LinearAlgebra

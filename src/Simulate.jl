@@ -1,9 +1,9 @@
 module Simulate
-export simulate, turing_wavelength
+export simulate, turing_wavelength, filter_turing
 
 using ..Models
 using ..PseudoSpectral
-using ..Util: ensure_params_vector, issingle, collect_params
+using ..Util: ensure_params_vector, issingle, collect_params, isnonzero
 using SciMLBase: solve, remake, successful_retcode, ODEFunction, SteadyStateProblem, EnsembleProblem, DiscreteCallback, terminate!, get_du
 using SteadyStateDiffEq: DynamicSS
 using OrdinaryDiffEqExponentialRK: ETDRK4
@@ -75,7 +75,7 @@ function steady_state_callback(reltol=1e-4,abstol=1e-4)
     DiscreteCallback(condition, terminate!)
 end
 
-
+#TODO benchmark algs
 function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
     single = issingle(params)
     params = ensure_params_vector(params) 
@@ -116,6 +116,12 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
     alg = DynamicSS(alg; tspan=tspan)
     sol = solve(ensemble_prob, alg; trajectories=length(params), verbose=true, kwargs...)
     single ? sol[1] : sol.u
+end
+
+function filter_turing(model, params)
+    turing_wavelength(model, params)
+    nonzeros = isnonzero.(λ)
+    params[nonzeros]
 end
 
 end

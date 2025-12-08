@@ -15,7 +15,9 @@ export ODESystem
 import Random: seed!
 export seed!
 
-import Catalyst, Symbolics
+using Symbolics: Num, value
+import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
+using Catalyst: numspecies, numparams, assemble_oderhs, @transport_reaction, @parameters
 using ..Util: subst
 
     "Contains all information about the model which is independent of the parameter values and method of solution."
@@ -32,6 +34,9 @@ function Model(reaction, diffusion; initial_conditions=Dict(), initial_noise=0.0
     Model(reaction, diffusion, Dict(initial_conditions), initial_noise, seed)
 end
 
+# Don't try to broadcast over a model.
+Base.broadcastable(model::Model) =  Ref(model)
+
 # Model getters
 # TODO Eliminate unused getters.
 species(model::Model) = Catalyst.species(model.reaction)
@@ -40,20 +45,20 @@ parameters(model::Model) = union(reaction_parameters(model), diffusion_parameter
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
 diffusion_parameters(model::Model) = union(Catalyst.parameters.(model.diffusion.spatial_reactions)...)
 
-reaction_rates(model) = Catalyst.assemble_oderhs(model.reaction, species(model))
+reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 function diffusion_rates(model::Model, default=0.0)
     dict = Dict(r.species => r.rate for r in model.diffusion.spatial_reactions)
-    Symbolics.Num.(subst(species(model), dict, default))
+    Num.(subst(species(model), dict, default))
 end
-num_species(model::Model) = Catalyst.numspecies(model.reaction)
+num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
-num_reaction_params(model::Model) = Catalyst.numparams(model.reaction)
+num_reaction_params(model::Model) = numparams(model.reaction)
 num_diffusion_params(model::Model) = length(diffusion_parameters(model))
 
 domain_size(model::Model) = model.diffusion.domain_size
 function domain_size(model::Model, params)
     L = domain_size(model)
-    L isa Symbolics.Num ? params[nameof(L)] : L
+    L isa Num ? params[nameof(L)] : L
 end
 
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
@@ -65,7 +70,7 @@ reaction_parameters(model::Model, params, default=0.0) = subst(reaction_paramete
 function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.0) # wrong and bad
     syms = Dict(nameof(p) => p for p in parameters(model))
     params = Dict(syms[k] => v for (k,v) in params)
-    [Symbolics.value(substitute(D, params)) for D in diffusion_rates(model,default)]
+    [(substitute(D, params)) for D in diffusion_rates(model,default)]
 end
 
 initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
@@ -100,7 +105,7 @@ end
 function diffusion_system(L, body::Expr, source)
     Base.remove_linenums!(body)
     ps_expr = Expr(:(=), esc(L), Expr(:ref, Expr(:macrocall, Symbol("@parameters"), source, L), 1))
-    trs_expr = Expr(:vect, (:(Catalyst.@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
+    trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
     ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
     L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
 end
