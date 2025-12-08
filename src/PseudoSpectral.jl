@@ -1,17 +1,20 @@
 module PseudoSpectral
 
 export pseudospectral_problem
+using ..Util: collect_params
+using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coefficients!, remake
+using FFTW: plan_r2r!, REDFT00, MEASURE
+using Symbolics: @variables, sparsejacobian, build_function, substitute
 
-using SciMLBase, FFTW, Symbolics
 
-"Construct a SplitODEProblem to solve `lrs` with reflective boundaries using a pseudo-spectral method.
+"Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, tspan; kwargs...)
     u0 = copy(u0)
     n = size(u0,1)
     m = size(u0,2)
 
-    plan! = 1/sqrt(2*(n-1)) * FFTW.plan_r2r!(copy(u0), FFTW.REDFT00, 1; flags=FFTW.MEASURE)
+    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(copy(u0), REDFT00, 1; flags=MEASURE)
     plan! * u0
     rs = collect_params(reaction_rates, species)
     ds = collect_params(diffusion_rates, species)
@@ -50,9 +53,9 @@ function reaction_operator(species, reaction_rates, u0, ps, plan!)
     # Do clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
     du = stack([substitute(expr, Dict([zip(species,v)..., zip(ps,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u),eachrow(p)); dims=1)
-    jac = Symbolics.sparsejacobian(vec(du),vec(u); simplify=true)
-    (f,f!) = Symbolics.build_function(du, u, p; expression=Val{false})
-    (fjac,fjac!) = Symbolics.build_function(jac, vec(u), p, (); expression=Val{false})
+    jac = sparsejacobian(vec(du),vec(u); simplify=true)
+    (f,f!) = build_function(du, u, p; expression=Val{false})
+    (fjac,fjac!) = build_function(jac, vec(u), p, (); expression=Val{false})
     function f̂!(du,u,p,t)
         du=reshape(du,n,m)
         p.u .= reshape(u,n,m)
@@ -71,16 +74,13 @@ function diffusion_operator(diffusion_rates, u0, ps)
     h = 1 / (n-1) # 2pi?
     k² = @. (4/h^2) * sin(k*pi/(2*(n-1)))^2  # Correction from (k/2pi h)^2 for the discrete transform.
     λ = vec(-k² * diffusion_rates')
-    (f,f!) = Symbolics.build_function(λ, ps; expression=Val{false})
+    (f,f!) = build_function(λ, ps; expression=Val{false})
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ, p.d)
     DiagonalOperator(λ0; update_func! = update!)
 end
 
-"Extract parameters from a set of expressions and sort them by name."
-collect_params(exprs, vars=[]) = sort_params(setdiff(union(Symbolics.get_variables.(exprs)...), vars))
 
-sort_params(p) = sort(p, by=nameof)
 
 struct Parameters
     u # Working array for dct.

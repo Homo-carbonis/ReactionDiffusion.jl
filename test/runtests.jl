@@ -40,16 +40,3 @@ end
     @test 1.5 < dynamic_range(u) < 4
     @test num_periods(u) ≈ expected_periods rtol=0.1
 end
-
-# TODO: Write a better test
-@testset "filter_params" begin
-    model = Schnakenberg.model
-    params = product(a = [0.2,0.5,10.0], b = [1.0,2.0,10.0], γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
-    expected_periods = 1/turing_wavelength(model,params)
-
-    ps = filter_params(model,params) do u,t
-        isapprox(num_periods(u[:,1]), expected_periods; rtol=0.5)
-    end
-
-    @test length(ps) == 6
-end

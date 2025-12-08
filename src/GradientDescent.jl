@@ -5,38 +5,11 @@ using ReactionDiffusion
 using Symbolics, Catalyst
 using FiniteDiff
 using LinearAlgebra
-using Chain
 using StatsBase: sample, Weights
 
-"Map integers to subscript characters."
-sub(i) = join(Char(0x2080 + d) for d in reverse!(digits(i)))
-"Subscript a symbol with `i...` separated by `_`."
-subscript(X, i...) = Symbol(X, join(sub.(i), "_"))
-"Build an array of subscripted symbols."
-function subscripts(name, dim)
-    dim = tuple(dim...) # ensure tuple
-    ixs = Iterators.product(range.(1,dim)...)
-    [subscript(name, r...) for r in ixs]
-end
-
-"Define a set of subscripted species and return them as a vector."
-function defspecies(name, t, n)
-    names = subscripts(name, n)
-    [only(@species $n(t)) for n in names]
-end
-
-function defparams(name, dim)
-    names = subscripts(name, dim)
-    [only(@parameters $n) for n in names]
-end
-
-function defparam(name, i...)
-    name = subscript(name, i...)
-    only(@parameters $name)
-end
 
 "Return a vector of all polynomial terms in `vars`` up to degree `n``."
-polynomial_terms(vars, n) = @chain fill([1;vars], n) Iterators.product(_...) prod.(_) vec
+polynomial_terms(vars, n) = fill([1;vars], n) |> splat(Iterators.product) .|> prod |> vec
 
 function rational_system(num_species, degree)
     t = default_t()
@@ -91,23 +64,16 @@ function random_signed_digraph(n, sparsity)
 end
 
 #
-function optimise(model, cost, params0; pmap=identity, η=0.01, β₁ = 0.02; β₂=0.001)
+function optimise(model, cost, params0; pmap=identity, η=0.01, β₁ = 0.02, β₂=0.001)
     u0 = ReactionDiffusion.createIC(model,num_verts) #??
     make_prob, transform = ReactionDiffusion.pseudospectral_problem(model, u0, tspan)
-    params0 = sort(params0)
-    ps, p = unzip(p0)
-
-    _cost(p) = @chain p begin
-        zipdict(ps,_)
-        pmap
-        simulate(make_prob,transform, _)
-        cost
-    end
-
-    p = adam(_cost, _, η, β₁, β₂)
-    zipdict(ps, p)
+    ps, p = unzip_params(params0)
+    _simulate(p) = simulate(make_prob, transform,p)
+    _dict(p) = Dict(zip(ps,p))
+    _cost(p) = p |> _dict |> pmap |> _simulate |> cost
+    p = adam(_cost, p, η, β₁, β₂)
+    _dict(p)
 end
-
 function adam(cost, p, η, β₁, β₂; maxiters=100)
     m = zero(p)
     v = zero(p)
@@ -132,8 +98,6 @@ function adam(cost, p, η, β₁, β₂; maxiters=100)
     p
 end
 
-zipdict(keys,vals) = Dict(zip(keys,vals))
-unzip(dict) = (keys(dict),values(dict)) .|> collect
 
 
 function find_turing(model, σ=100; batch_size=100, num_batches=10, kwargs...)
@@ -148,5 +112,5 @@ function find_turing(model, σ=100; batch_size=100, num_batches=10, kwargs...)
     error("FAILURE!")
 end
 
-isnonzero(x) = !(ismissing(x) || iszero(x))
+
 end
