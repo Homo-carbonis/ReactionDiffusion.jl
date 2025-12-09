@@ -44,7 +44,7 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
 
     progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
-    function output_func_(sol,i)
+    function _output_func(sol,i)
         repeat = sol.prob.p.state
         successful_retcode(sol) || return (missing, repeat <= maxrepeats) # Rerun if solution failed.
         next!(progress) # Advance progress bar.
@@ -65,7 +65,7 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
         prob = make_prob(p, repeat; dt=dt)
     end
 
-    ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=output_func_, prob_func=prob_func)
+    ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
     sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
     single ? sol[1] : sol
 end
@@ -84,22 +84,22 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
 
     du = reaction_rates(model)
     u = species(model)
-    p = parameters(model)
+    ps = parameters(model)
     t = ()
     (f,f!) = build_function(du, u, p, t; expression=Val{false})
     jac = jacobian(du,u; simplify=true)
-    (fjac,fjac!) = build_function(jac, u, p, t; expression=Val{false})
+    (fjac,fjac!) = build_function(jac, u, ps, t; expression=Val{false})
 
     R = ODEFunction(f!; jac=fjac!)
-    prob = SteadyStateProblem(R, u0, [params[1][k] for k in p])
+    prob = SteadyStateProblem(R, u0, [params[1][k] for k in ps])
 
     d = diffusion_rates(model)
-    (D,D!) = build_function(diagm(d), p; expression=Val{false})
+    (D,D!) = build_function(diagm(d), ps; expression=Val{false})
 
     k² = k.^2
     function output_func(sol,i)
         successful_retcode(sol) || return (missing, false)
-        local p = sol.prob.p
+        p = sol.prob.p
 
         J = fjac(sol.u, p, 0.0)
         any((!isfinite).(J)) && return (missing,false)
@@ -109,12 +109,12 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, al
     end
 
     function prob_func(prob,i,repeat)
-        remake(prob, p=[params[i][key] for key in p])
+        remake(prob, p=[params[i][key] for key in ps])
     end
 
     ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
     alg = DynamicSS(alg; tspan=tspan)
-    sol = solve(ensemble_prob, alg; trajectories=length(params), verbose=true, kwargs...)
+    sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
     single ? sol[1] : sol.u
 end
 
