@@ -21,8 +21,12 @@ function subst(keys, dict, default)
     v
 end
 
+"Zip a keys vector and a values vector into a dictionary."
+zip_dict(keys, values) = Dict(zip(keys,values))
 "Unzip a dictionary into a keys vector and a values vector."
 unzip_dict(dict) = (keys(dict),values(dict))
+
+
 
 ## Parameters 
 "Sort parameters by name."
@@ -35,8 +39,6 @@ collect_params(exprs, vars=[]) = @pipe exprs .|> get_variables |> splat(union) |
 
 
 # Parameter dictionaries
-"Unzip parameters into a keys vector and a values vector."
-unzip_params(params) = params |> Dict |> lookup |> unzip_dict
 lookup(params::AbstractDict) = Dict(lookup(k) => v for (k,v) in params)
 "Return a vector of parameter dictionaries with symbolic keys."
 ensure_params_vector(params) = params |> ensure_vector .|> Dict .|> lookup
@@ -76,7 +78,6 @@ end
 issingle(x) = !(x isa AbstractVector)
 isnonzero(x) = !(ismissing(x) || iszero(x))
 ensure_vector(x) = x isa Vector ? x : [x]
-
 
 end
 

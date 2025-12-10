@@ -64,17 +64,12 @@ function random_signed_digraph(n, sparsity)
 end
 
 
-
-function optimise(model, cost, params0; dist=, pmap=identity, η=0.01, β₁ = 0.02, β₂=0.001)
+function optimise(model, cost, params0; sample=identity, η=0.01, β₁ = 0.02, β₂=0.001)
     u0 = ReactionDiffusion.createIC(model,num_verts) #??
     make_prob, transform = ReactionDiffusion.pseudospectral_problem(model, u0, tspan)
-    ps, p = unzip_params(params0)
-    d = get.(dist, ps, Dirac)
-    _simulate(p) = simulate(make_prob, transform, p)
-    _dict(p) = Dict(zip(ps,p))
-    _cost(p) = p |> _dict |> pmap |> _simulate |> cost
+    _cost(p) = @pipe p |> zip_dict(ps,_) |> sample |> simulate(make_prob, transform, _) |> cost
     p = adam(_cost, p, η, β₁, β₂)
-    _dict(p)
+    zip_dict(ps,p)
 end
 
 function adam(cost, p, η, β₁, β₂; maxiters=100)

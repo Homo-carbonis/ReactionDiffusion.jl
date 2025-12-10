@@ -1,6 +1,5 @@
 using ReactionDiffusion
 using Test
-
 include("../examples/Schnakenberg.jl")
 
 

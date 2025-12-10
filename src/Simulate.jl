@@ -5,10 +5,13 @@ using ..Models
 using ..PseudoSpectral
 using ..Util: ensure_params_vector, issingle, collect_params, isnonzero
 using SciMLBase: solve, remake, successful_retcode, ODEFunction, SteadyStateProblem, EnsembleProblem, DiscreteCallback, terminate!, get_du
+using DiffEqGPU: EnsembleGPUArray
+using CUDA: CUDABackend
 using SteadyStateDiffEq: DynamicSS
 using OrdinaryDiffEqExponentialRK: ETDRK4
 using OrdinaryDiffEqRosenbrock: Rodas5
-using Symbolics: build_function, jacobian
+#using Symbolics: build_function, jacobian, symbolic_solve
+using SymbolicUtils: BasicSymbolic
 using LinearAlgebra: diagm, eigvals
 using ProgressMeter: Progress, BarGlyphs, next!
 
@@ -66,7 +69,7 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
     end
 
     ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
-    sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
+    sol = solve(ensemble_prob, alg, EnsembleGPUArray(CUDA.CUDABackend()); trajectories=length(params), kwargs...)
     single ? sol[1] : sol
 end
 
@@ -75,53 +78,46 @@ function steady_state_callback(reltol=1e-4,abstol=1e-4)
     DiscreteCallback(condition, terminate!)
 end
 
-#TODO benchmark algs
-function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
-    single = issingle(params)
-    params = ensure_params_vector(params) 
+# #TODO benchmark algs
+# function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
+#     single = issingle(params)
+#     params = ensure_params_vector(params) 
 
-    u0 = ones(num_species(model))
+#     u0 = ones(num_species(model))
 
-    du = reaction_rates(model)
-    u = species(model)
-    ps = parameters(model)
-    t = ()
-    (f,f!) = build_function(du, u, p, t; expression=Val{false})
-    jac = jacobian(du,u; simplify=true)
-    (fjac,fjac!) = build_function(jac, u, ps, t; expression=Val{false})
+#     du = reaction_rates(model)
+#     u = species(model)
+#     ps = parameters(model)
+#     p=[[params[k] for k in ps] for params in params]
 
-    R = ODEFunction(f!; jac=fjac!)
-    prob = SteadyStateProblem(R, u0, [params[1][k] for k in ps])
+#     jac = jacobian(du,u; simplify=true)
+#     ss = filter(symbolic_solve(du, u)) do sol
+#         all(isrealsym, values(sol))
+#     end
+#     jac_ss = substitute(jac, only(ss)) # TODO handle multiple ss.
+#     (fjac,fjac!) = build_function(jac_ss, ps; expression=Val{false})
 
-    d = diffusion_rates(model)
-    (D,D!) = build_function(diagm(d), ps; expression=Val{false})
+#     d = diffusion_rates(model)
+#     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
 
-    k² = k.^2
-    function output_func(sol,i)
-        successful_retcode(sol) || return (missing, false)
-        p = sol.prob.p
+#     k² = k.^2
+#     λ = map(params) do params
+#         p = [params[key] for key in ps]
+#         J = fjac(p)
+#         all(<(0.0), real(eigvals(J))) || return 0.0
+#         D = fd(p)
+#         real_max, i = findmax(real(eigvals(J - D * k²)[end]) for k² in k²)
+#         real_max > 0.0 ? 2pi/k[i] : 0.0
+#     end
+# end
 
-        J = fjac(sol.u, p, 0.0)
-        any((!isfinite).(J)) && return (missing,false)
-        real_max,i = findmax(real(eigvals(J - D(p) * k²)[end]) for k² in k²)
-        λ = real_max > 0.0 ? 2pi/k[i] : 0.0
-        (λ, false)
-    end
+# isrealsym(::BasicSymbolic{Real}) = true
+# isrealsym(::BasicSymbolic{Complex{Real}}) = false
 
-    function prob_func(prob,i,repeat)
-        remake(prob, p=[params[i][key] for key in ps])
-    end
-
-    ensemble_prob = EnsembleProblem(prob; output_func=output_func, prob_func=prob_func)
-    alg = DynamicSS(alg; tspan=tspan)
-    sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
-    single ? sol[1] : sol.u
-end
-
-function filter_turing(model, params)
-    turing_wavelength(model, params)
-    nonzeros = isnonzero.(λ)
-    params[nonzeros]
-end
+# function filter_turing(model, params)
+#     turing_wavelength(model, params)
+#     nonzeros = isnonzero.(λ)
+#     params[nonzeros]
+# end
 
 end
