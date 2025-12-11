@@ -3,7 +3,7 @@ export simulate
 
 using ..Models
 using ..PseudoSpectral
-using ..Util: ensure_params_vector, issingle
+using ..Util: issingle, lookup
 using SciMLBase: solve, successful_retcode, EnsembleProblem, DiscreteCallback, terminate!, get_du
 using DiffEqGPU: EnsembleGPUArray
 using CUDA: CUDABackend
@@ -38,7 +38,7 @@ end
 
 function simulate(make_prob, transform, params; output_func=nothing, full_solution=false, alg=ETDRK4(), dt=0.1, maxrepeats = 4, kwargs...)
     single = issingle(params)
-    params = ensure_params_vector(params) 
+    params = single ? [lookup(params)] : lookup.(params)
 
     progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
@@ -65,6 +65,8 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
 
     ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
     sol = solve(ensemble_prob, alg, EnsembleGPUArray(CUDA.CUDABackend()); trajectories=length(params), kwargs...)
+    # sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
+
     single ? sol[1] : sol
 end
 

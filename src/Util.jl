@@ -40,8 +40,6 @@ collect_params(exprs, vars=[]) = @pipe exprs .|> get_variables |> splat(union) |
 
 # Parameter dictionaries
 lookup(params::AbstractDict) = Dict(lookup(k) => v for (k,v) in params)
-"Return a vector of parameter dictionaries with symbolic keys."
-ensure_params_vector(params) = params |> ensure_vector .|> Dict .|> lookup
 
 ## Subscripted symbols
 "Map integers to subscript characters."

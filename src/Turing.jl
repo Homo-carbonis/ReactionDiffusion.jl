@@ -2,7 +2,7 @@ module Turing
 export turing_wavelength
 
 using ..Models
-using ..Util: issingle, ensure_params_vector
+using ..Util: issingle, lookup
 
 using Groebner
 using Symbolics: jacobian, symbolic_solve, substitute, build_function, Num
@@ -11,7 +11,7 @@ using LinearAlgebra: diagm, eigvals
 
 function turing_wavelength(model, params; k=logrange(0.1,100,100))
     single = issingle(params)
-    params = ensure_params_vector(params) 
+    params = single ? [lookup(params)] : lookup.(params)
 
     u0 = ones(num_species(model))
    
