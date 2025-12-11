@@ -1,18 +1,13 @@
 module Simulate
-export simulate, turing_wavelength, filter_turing
+export simulate
 
 using ..Models
 using ..PseudoSpectral
-using ..Util: ensure_params_vector, issingle, collect_params, isnonzero
-using SciMLBase: solve, remake, successful_retcode, ODEFunction, SteadyStateProblem, EnsembleProblem, DiscreteCallback, terminate!, get_du
+using ..Util: ensure_params_vector, issingle
+using SciMLBase: solve, successful_retcode, EnsembleProblem, DiscreteCallback, terminate!, get_du
 using DiffEqGPU: EnsembleGPUArray
 using CUDA: CUDABackend
-using SteadyStateDiffEq: DynamicSS
 using OrdinaryDiffEqExponentialRK: ETDRK4
-using OrdinaryDiffEqRosenbrock: Rodas5
-#using Symbolics: build_function, jacobian, symbolic_solve
-using SymbolicUtils: BasicSymbolic
-using LinearAlgebra: diagm, eigvals
 using ProgressMeter: Progress, BarGlyphs, next!
 
 
