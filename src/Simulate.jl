@@ -5,8 +5,6 @@ using ..Models
 using ..PseudoSpectral
 using ..Util: issingle, lookup
 using SciMLBase: solve, successful_retcode, EnsembleProblem, DiscreteCallback, terminate!, get_du
-using DiffEqGPU: EnsembleGPUArray
-using CUDA: CUDABackend
 using OrdinaryDiffEqExponentialRK: ETDRK4
 using ProgressMeter: Progress, BarGlyphs, next!
 
@@ -64,7 +62,7 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
     end
 
     ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
-    sol = solve(ensemble_prob, alg, EnsembleGPUArray(CUDA.CUDABackend()); trajectories=length(params), kwargs...)
+    sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
     # sol = solve(ensemble_prob, alg; trajectories=length(params), kwargs...)
 
     single ? sol[1] : sol

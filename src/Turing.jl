@@ -1,5 +1,5 @@
 module Turing
-export turing_wavelength
+export turing_wavelength, filter_turing
 
 using ..Models
 using ..Util: issingle, lookup
@@ -10,16 +10,14 @@ using LinearAlgebra: diagm, eigvals
 
 
 function turing_wavelength(model, params; k=logrange(0.1,100,100))
-    single = issingle(params)
-    params = single ? [lookup(params)] : lookup.(params)
+    f = turing_wavelength_problem(model;k=k)
+    issingle(params) ? f(params) : f.(params)
+end
 
-    u0 = ones(num_species(model))
-   
+function turing_wavelength_problem(model; k=logrange(0.1,100,100))   
     du = reaction_rates(model)
     u = Num.(species(model))  # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
     ps = parameters(model)
-    p=[[params[k] for k in ps] for params in params]
-
     jac = jacobian(du,u; simplify=true)
     ss = symbolic_solve(du, u)
     jac_ss = substitute(jac, only(ss)) # TODO: Handle multiple steady states.
@@ -29,7 +27,8 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100))
     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
 
     k² = k.^2
-    map(params) do params
+
+    function(params)
         p = [params[key] for key in ps]
         J = fjac(p)
         all(<(eps(J[1])), real(eigvals(J))) || return 0.0
@@ -38,4 +37,13 @@ function turing_wavelength(model, params; k=logrange(0.1,100,100))
         real_max > 0.0 ? 2pi/k[i] : 0.0
     end
 end
+
+
+function filter_turing(model,params)
+    f = turing_wavelength_problem(model)
+    filter(params) do p
+        f(p) > 0.0
+    end
+end
+
 end

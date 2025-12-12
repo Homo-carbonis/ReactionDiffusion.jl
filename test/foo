@@ -1,6 +1,5 @@
-using ReactionDiffusion
+using ReactionDiffusion, BenchmarkTools
 include("../examples/Schnakenberg.jl")
-
 
 function num_periods(u)
     deviation = sign.(u.- 0.5*(maximum(u) .+ minimum(u)))
@@ -11,11 +10,4 @@ params = Schnakenberg.params
 
 model = Schnakenberg.model
 params = product(a = [0.2,0.5,10.0], b =[1.0,2.0,10.0], γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
-expected_periods = 12
-function f(u,t)
-    u = u[:,1]
-    @show num_periods(u)
-    isapprox(num_periods(u), expected_periods; rtol=0.5)
-end
-
-ps = filter_params(f,model,params;maxiters=1e5, abstol=1e-3, reltol=1e-3)
+simulate(model,params; maxrepeats=0, maxiters=1e4)
