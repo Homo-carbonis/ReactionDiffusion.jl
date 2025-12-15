@@ -2,6 +2,7 @@ module Util
 using Pipe: @pipe
 using Catalyst: @species, @parameters
 using Symbolics: get_variables, Num
+using Base.Threads: @threads
 
 ## Generic Dictionaries
 "Convenience function to construct a dict using (k=v, ...) syntax"
@@ -24,7 +25,7 @@ end
 "Zip a keys vector and a values vector into a dictionary."
 zip_dict(keys, values) = Dict(zip(keys,values))
 "Unzip a dictionary into a keys vector and a values vector."
-unzip_dict(dict) = (keys(dict),values(dict))
+unzip_dict(dict) = (collect(keys(dict)), collect(values(dict)))
 
 
 
@@ -72,10 +73,24 @@ function defparam(name, i...)
     only(@parameters $name)
 end
 
+
+## Threads
+function tmap(f, T, a)
+    b = similar(a, T)
+    @threads for i in eachindex(a)
+        b[i] = f(a[i])
+    end
+    b
+end
+
+tfilter(f, a) = a[tmap(f,Bool,a)]
+
+
 ## Misc
 issingle(x) = !(x isa AbstractVector)
 isnonzero(x) = !(ismissing(x) || iszero(x))
 ensure_vector(x) = x isa Vector ? x : [x]
+
 
 end
 
