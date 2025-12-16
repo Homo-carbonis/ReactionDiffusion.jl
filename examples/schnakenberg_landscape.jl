@@ -37,9 +37,11 @@ function plot_turing(model, params)
 end
 ##
 
-function cost(u,t)
-    isempty(u) && return Inf
-    u = only(u)
+function cost(sol)
+    isempty(sol.u) && return Inf
+    ut = only(sol.u)
+    ismissing(ut) && return Inf
+    (u,t) = ut
     sum(u[n÷2:end,1]) / sum(u[:,1])
 end
 
@@ -53,6 +55,7 @@ function sample(params)
     end
     params
 end
+(asym,bsym) = lookup.((:a,:b)) 
 
 function plot_cost(model, params)
     sol = with_logger(Base.NullLogger()) do
@@ -60,7 +63,6 @@ function plot_cost(model, params)
     end
 
     vals = Dict()
-    (asym,bsym) = lookup.((:a,:b)) 
     for (i,p) in enumerate(params)
         ismissing(sol.u[i]) && continue
         get!(vals, (p[asym],p[bsym]), 0.0)
@@ -80,6 +82,10 @@ end
 
 params = product(a = range(0.0,0.5,100), b = range(0.0,5.0,100), γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0], L=[50.0])
 turing_params = filter_turing(model,params)
-    
+
+tp = lookup(Dict(:a => 0.2, :b => 1.6, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0, :L=>50.0))
+vars = lookup.([:a,:b])
 # plot_cost(model,turing_params)
-optimise(model, cost, turing_params[1]; in_domain = is_turing(model), maxiters=10)
+path = optimise(model, cost, vars, tp; in_domain = is_turing(model), maxsteps=100, maxrepeats=1, maxiters=1e6, savepath=true)
+path = [(p[asym], p[bsym]) for p in path]
+lines(path)

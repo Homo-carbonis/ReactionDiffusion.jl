@@ -34,10 +34,15 @@ function simulate(model, params; output_func=nothing, full_solution=false, tspan
     simulate(make_prob, transform, params; output_func=output_func, full_solution=full_solution, alg=alg, dt=dt, maxrepeats = maxrepeats, kwargs...)
 end
 
+function simulate(model; output_func=nothing, full_solution=false, tspan=Inf, alg=ETDRK4(), dt=0.1, num_verts=64, reltol=1e-4, abstol=1e-4, maxiters = 1e6, maxrepeats = 4, kwargs...)
+    u0 = createIC(model, num_verts)
+    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steady_state_callback(reltol,abstol), maxiters=maxiters, dt=dt)
+    params -> simulate(make_prob, transform, params; output_func=output_func, full_solution=full_solution, alg=alg, dt=dt, maxrepeats = maxrepeats, kwargs...)
+end
+
 function simulate(make_prob, transform, params; output_func=nothing, full_solution=false, alg=ETDRK4(), dt=0.1, maxrepeats = 4, kwargs...)
     single = issingle(params)
     params = single ? [lookup(params)] : lookup.(params)
-
     progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
     function _output_func(sol,i)
@@ -57,8 +62,8 @@ function simulate(make_prob, transform, params; output_func=nothing, full_soluti
         
     function prob_func(prob, i, repeat)
         p = params[i]
-        dt = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
-        prob = make_prob(p, repeat; dt=dt)
+        dt′ = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
+        prob = make_prob(p, repeat; dt=dt′)
     end
 
     ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
