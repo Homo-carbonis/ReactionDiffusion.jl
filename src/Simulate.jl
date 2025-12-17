@@ -4,7 +4,7 @@ export simulate
 using ..Models
 using ..PseudoSpectral
 using ..Util: issingle, lookup
-using SciMLBase: solve, successful_retcode, EnsembleProblem, DiscreteCallback, terminate!, get_du
+using SciMLBase: solve, successful_retcode, EnsembleProblem, EnsembleSolution, DiscreteCallback, terminate!, get_du
 using OrdinaryDiffEqExponentialRK: ETDRK4
 using ProgressMeter: Progress, BarGlyphs, next!
 
@@ -41,6 +41,7 @@ function simulate(model; output_func=nothing, full_solution=false, tspan=Inf, al
 end
 
 function simulate(make_prob, transform, params; output_func=nothing, full_solution=false, alg=ETDRK4(), dt=0.1, maxrepeats = 4, kwargs...)
+    isempty(params) && return EnsembleSolution([], 0.0, false)
     single = issingle(params)
     params = single ? [lookup(params)] : lookup.(params)
     progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
@@ -77,47 +78,5 @@ function steady_state_callback(reltol=1e-4,abstol=1e-4)
     condition(u,t,integrator) = isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol)
     DiscreteCallback(condition, terminate!)
 end
-
-# #TODO benchmark algs
-# function turing_wavelength(model, params; k=logrange(0.1,100,100), tspan=1e4, alg=Rodas5(), kwargs...)
-#     single = issingle(params)
-#     params = ensure_params_vector(params) 
-
-#     u0 = ones(num_species(model))
-
-#     du = reaction_rates(model)
-#     u = species(model)
-#     ps = parameters(model)
-#     p=[[params[k] for k in ps] for params in params]
-
-#     jac = jacobian(du,u; simplify=true)
-#     ss = filter(symbolic_solve(du, u)) do sol
-#         all(isrealsym, values(sol))
-#     end
-#     jac_ss = substitute(jac, only(ss)) # TODO handle multiple ss.
-#     (fjac,fjac!) = build_function(jac_ss, ps; expression=Val{false})
-
-#     d = diffusion_rates(model)
-#     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
-
-#     k² = k.^2
-#     λ = map(params) do params
-#         p = [params[key] for key in ps]
-#         J = fjac(p)
-#         all(<(0.0), real(eigvals(J))) || return 0.0
-#         D = fd(p)
-#         real_max, i = findmax(real(eigvals(J - D * k²)[end]) for k² in k²)
-#         real_max > 0.0 ? 2pi/k[i] : 0.0
-#     end
-# end
-
-# isrealsym(::BasicSymbolic{Real}) = true
-# isrealsym(::BasicSymbolic{Complex{Real}}) = false
-
-# function filter_turing(model, params)
-#     turing_wavelength(model, params)
-#     nonzeros = isnonzero.(λ)
-#     params[nonzeros]
-# end
 
 end

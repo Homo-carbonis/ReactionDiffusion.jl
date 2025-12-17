@@ -1,7 +1,7 @@
 module GradientDescent
-export optimise
+export optimise, plot_cost
 
-using ..Util: defspecies, defparams, zip_dict, unzip_dict
+using ..Util: defspecies, defparams, zip_dict, unzip_dict, tmap
 using ..Models: createIC, pseudospectral_problem
 using ..Simulate
 using Symbolics, Catalyst
@@ -10,35 +10,37 @@ using LinearAlgebra
 using StatsBase: sample, Weights
 using Pipe: @pipe
 
-function show(p)
-    @show p[1]
-    p
-end
-function optimise(model, cost, vars, params0; in_domain=x->true, sample=p->[p], η=0.01, β₁ = 0.02, β₂=0.001, ϵ=0.001, maxsteps=100, savepath=false, kwargs...)
+
+function optimise(model, cost, vars, params0; in_domain=x->true, sample=nothing, η=0.001, β₁ = 0.02, β₂=0.001, ϵ=0.001, maxsteps=100, savepath=false, kwargs...)
     _simulate = simulate(model; kwargs...)
-    # params0= lookup(params0)
-    # vars= lookup.(vars)
-    p = [params0[v] for v in vars]
-    _cost(p) = @pipe p |> zip_dict(vars,_) |> merge(params0, _) |> sample |> filter(in_domain,_) |> _simulate |> cost
-    path = adam(_cost, p, η, β₁, β₂, ϵ; maxsteps=maxsteps)
-    if savepath
-        [merge(params0, zip_dict(vars, p)) for p in path]
-    else
-        merge(params0, zip_dict(vars, path[end]))
+    function _cost(sol)
+        (isempty(sol) || any(ismissing, sol.u)) && return Inf
+        isnothing(sample) ? cost(only(sol.u)...) : cost(sol.u)
     end
+
+    _sample = something(sample, x->[x])
+
+    __cost(p) = @pipe p |> zip_dict(vars,_) |> merge(params0, _) |> _sample |> filter(in_domain,_) |> _simulate |> _cost
+
+    p = [params0[v] for v in vars]
+    path = adam(__cost, p, η, β₁, β₂, ϵ; maxsteps=maxsteps)
+    savepath ? path : path[end]
 end
 
 
-function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=100)
+function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=1000)
     m = zero(p)
     v = zero(p)
     path=[p]
     for i in 1:maxsteps
+        print("$(i), ")
         J = vec(FiniteDiff.finite_difference_jacobian(cost, p))
+        @show J
         norm(J) < ϵ && return path
-        if any(isnan.(J))
+        if !all(isfinite.(J))
             p = path[end] # Backtrack if p is unstable.
             η /= 2  # Reduce learning rate.
+            @warn "Retrying with η = $(η)."
             continue
         end
         push!(path, p)
@@ -52,5 +54,25 @@ function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=100)
     path
 end
 
+
+
+function plot_cost(model, cost, vars, params; in_domain=x->true, sample=nothing, kwargs...)
+    _simulate = simulate(model; kwargs...)
+    
+    function _cost(sol)
+        isempty(sol.u) || any(ismissing, sol.u) && return Inf
+        isnothing(sample) ? cost(only(sol.u)...) : cost(sol.u)
+    end
+
+    _sample = something(sample, x->[x])
+
+    __cost(p) = @pipe p |> zip_dict(vars,_) |> merge(params[1], _) |> _sample |> filter(in_domain,_) |> _simulate |> _cost
+
+    p = [[params[v] for v in vars] for params in params]
+    c = tmap(__cost, Float64, p)
+    a = [first(x) for x in p]
+    b = [last(x) for x in p] # TODO Proper unzip
+    (a,b,c)
+end
 
 end
