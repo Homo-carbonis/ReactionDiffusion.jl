@@ -18,4 +18,6 @@ end
 model = Model(reaction, diffusion)
 params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0)
 
+sol = simulate(model,params; full_solution=true)
+plot_interactiove
 end

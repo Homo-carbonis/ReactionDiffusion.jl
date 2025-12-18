@@ -74,7 +74,7 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
 end
 
 initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
-pseudospectral_problem(model, u0, tspan; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), u0, tspan; kwargs...)
+pseudospectral_problem(model, num_verts; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), num_verts; kwargs...)
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 seed!(model::Model) = seed!(model.seed)
@@ -110,12 +110,23 @@ function diffusion_system(L, body::Expr, source)
     L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
 end
 
-# TODO: replace
-function createIC(model, n)
-    seed!(model)
-    m = num_species(model)
-    σ = noise(model)
-    abs.(σ * randn(n, m) .+ initial_conditions(model)')
+
+function parameter_set(model, initial_conditions, params; σ=0.01)
+    ics = lookup(initial_conditions)
+    params = lookup(params)
+    set = Dict{Num, Function}()
+    for s in species(model)
+        p = get(ics, s, 0.0) |> ensure_function
+        set[s] = addnoise ∘ p
+    end
+
+    for ps in parameters(model)
+        set[ps] = get(params, ps, 1.0) |> ensure_function
+    end
+    set
 end
+
+
+addnoise(σ=1.0) = x -> max(0.0, x + σ*randn())
 
 end

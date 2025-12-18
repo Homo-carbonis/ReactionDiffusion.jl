@@ -26,6 +26,7 @@ function turing_wavelength(model; k=logrange(0.1,100,100))
     k² = k.^2
 
     function f(params)
+        lookup(params)
         p = [params[key] for key in ps]
         J = fjac(p)
         all(<(eps(J[1])), real(eigvals(J))) || return 0.0

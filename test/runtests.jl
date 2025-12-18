@@ -15,7 +15,7 @@ dynamic_range(u) = maximum(u)/minimum(u)
     model = Schnakenberg.model
     params = product(a = range(0.0,0.6,4), b = range(0.0,3.0,4), γ = [1.0], Dᵤ = [1.0], Dᵥ = [50.0])
 
-    λ = turing_wavelength(model, params);
+    λ = turing_wavelength.(model, params);
     turing_params = params[λ.>0]
 
     a = get.(turing_params, :a, missing)

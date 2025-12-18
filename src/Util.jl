@@ -39,7 +39,7 @@ lookup(param::Num) = param
 collect_params(exprs, vars=[]) = @pipe exprs .|> get_variables |> splat(union) |> setdiff(_,vars) |> sort_params
 
 
-# Parameter dictionaries
+# Parameter dictionaries TODO: Do nothing on Num keys.
 lookup(params::AbstractDict) = Dict(lookup(k) => v for (k,v) in params)
 
 ## Subscripted symbols
@@ -89,7 +89,10 @@ tfilter(f, a) = a[tmap(f,Bool,a)]
 ## Misc
 issingle(x) = !(x isa AbstractVector)
 isnonzero(x) = !(ismissing(x) || iszero(x))
-ensure_vector(x) = x isa Vector ? x : [x]
+ensure_vector(v::AbstractVector) = v
+ensure_vector(x) = [x]
+ensure_function(f::Function) = f
+ensure_function(x) = _ -> x
 
 
 end

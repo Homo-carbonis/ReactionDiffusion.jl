@@ -9,13 +9,12 @@ using Symbolics: @variables, sparsejacobian, build_function, substitute
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, tspan; kwargs...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, num_verts; kwargs...)
     u0 = copy(u0)
-    n = size(u0,1)
-    m = size(u0,2)
-
-    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(copy(u0), REDFT00, 1; flags=MEASURE)
-    plan! * u0
+    n = num_verts
+    m = length(species)
+    u0 = Matrix{Float64}(undef, n, m)
+    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u0, REDFT00, 1; flags=MEASURE)
     rs = collect_params(reaction_rates, species)
     ds = collect_params(diffusion_rates, species)
     R = reaction_operator(species, reaction_rates, u0, rs, plan!)
@@ -25,14 +24,14 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, u0, ts
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
-        r = [params[k] for k in rs]
+        r = stack(params[k] for k in rs)
         d = [params[k] for k in ds]
-        r = stack(p isa Function ? p.(range(0.0,1.0,n)) : fill(p, n) for p in r) # Expand r into an n x length(r) matrix
-        any(p isa Function for p in d) && error("Spatially dependent diffusion parameters are not supported.")
-        u = similar(u0) # Allocate working memory for dct.
+        u0 = stack(params[k] for k in species)
+        any(p isa AbstractVector for p in d) && error("Spatially dependent diffusion parameters are not yet supported.")
+        u = Matrix{Float64}(undef, n, m) # Allocate working memory for dct.
         p = Parameters(u,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
-        remake(prob; p=p, kwargs...) # Set parameter values in SplitODEProblem.
+        remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
 
     # Function to transform output back to spatial domain.
@@ -79,7 +78,6 @@ function diffusion_operator(diffusion_rates, u0, ps)
     update!(λ,u,p,t) = f!(λ, p.d)
     DiagonalOperator(λ0; update_func! = update!)
 end
-
 
 
 struct Parameters
