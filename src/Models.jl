@@ -120,8 +120,12 @@ function parameter_set(model, initial_conditions, params; σ=0.01)
         set[s] = addnoise ∘ p
     end
 
-    for ps in parameters(model)
-        set[ps] = get(params, ps, 1.0) |> ensure_function
+    for rs in reaction_parameters(model)
+        set[rs] = get(params, rs, 1.0) |> ensure_function
+    end
+
+    for ds in diffusion_parameters(model)
+        set[ds] = get(params, ds, 1.0)
     end
     set
 end
