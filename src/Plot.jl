@@ -8,9 +8,9 @@ using Printf: @sprintf
 using Makie
 using Observables
 
-function plot(model, params; kwargs...)
+function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
     u,t=simulate(model,params; full_solution=true, kwargs...)
-    plot(model, u,t)
+    plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits)
 end
 
 function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)

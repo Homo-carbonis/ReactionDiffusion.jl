@@ -25,7 +25,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, num_ve
     function make_problem(params, state=nothing; kwargs...)
         r = stack(params[k] for k in rs)
         d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
-        u0 = vec(stack(params[k] for k in species))
+        u0 = stack(params[k] for k in species)
+        plan! * u0
+        u0 = vec(u0)
         u = Matrix{Float64}(undef, n, m) # Allocate working memory for dct.
         p = Parameters(u,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.

@@ -112,24 +112,23 @@ end
 
 ParameterSet = Dict{Num, Union{Float64,Function}}
 function parameter_set(model, params; σ=0.001)
-    params =  Dict(only(@parameters $k) => v for (k,v) in params) 
     set = ParameterSet()
     for s in species(model)
-        p = get(params, s, 0.0)
+        p = get(params, nameof(s.f), 0.0)
         set[s] = iszero(σ) ? p : addnoise(σ) ∘ ensure_function(p)
     end
 
     for rs in reaction_parameters(model)
-        set[rs] = get(params, rs, 1.0)
+        set[rs] = get(params, nameof(rs), 1.0)
     end
 
     for ds in diffusion_parameters(model)
-        set[ds] = get(params, ds, 0.0)
+        set[ds] = get(params, nameof(ds), 0.0)
     end
     
     L = domain_size(model)
     if L isa Num 
-        set[L] = get(params, L, 1.0)
+        set[L] = get(params, nameof(L), 1.0)
     end
     set
 end
