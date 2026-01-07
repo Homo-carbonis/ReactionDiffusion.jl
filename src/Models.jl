@@ -4,7 +4,7 @@ export Model, species, parameters, reaction_parameters, diffusion_parameters,
     domain_size, initial_conditions, noise,
     reaction_rates, diffusion_rates,
     @diffusion_system,
-    createIC
+    parameter_set, ParameterSet
 
 import ..PseudoSpectral: pseudospectral_problem
 export pseudospectral_problem
@@ -18,9 +18,9 @@ export seed!
 using Symbolics: Num, value
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
 using Catalyst: numspecies, numparams, assemble_oderhs, @transport_reaction, @parameters
-using ..Util: subst
+using ..Util: subst, ensure_function
 
-    "Contains all information about the model which is independent of the parameter values and method of solution."
+"Contains all information about the model which is independent of the parameter values and method of solution."
 struct Model
     reaction
     diffusion
@@ -110,22 +110,26 @@ function diffusion_system(L, body::Expr, source)
     L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
 end
 
-
-function parameter_set(model, initial_conditions, params; σ=0.01)
-    ics = lookup(initial_conditions)
-    params = lookup(params)
-    set = Dict{Num, Function}()
+ParameterSet = Dict{Num, Union{Float64,Function}}
+function parameter_set(model, params; σ=0.001)
+    params =  Dict(only(@parameters $k) => v for (k,v) in params) 
+    set = ParameterSet()
     for s in species(model)
-        p = get(ics, s, 0.0) |> ensure_function
-        set[s] = addnoise ∘ p
+        p = get(params, s, 0.0)
+        set[s] = iszero(σ) ? p : addnoise(σ) ∘ ensure_function(p)
     end
 
     for rs in reaction_parameters(model)
-        set[rs] = get(params, rs, 1.0) |> ensure_function
+        set[rs] = get(params, rs, 1.0)
     end
 
     for ds in diffusion_parameters(model)
-        set[ds] = get(params, ds, 1.0)
+        set[ds] = get(params, ds, 0.0)
+    end
+    
+    L = domain_size(model)
+    if L isa Num 
+        set[L] = get(params, L, 1.0)
     end
     set
 end

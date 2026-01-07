@@ -1,9 +1,14 @@
 module Plot
 export plot, interactive_plot
 using ..Simulate
-using ..Util: sort_params
+using ..Models
+using LinearAlgebra: norm
 
-function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+using Printf: @sprintf
+using Makie
+using Observables
+
+function plot(model, params; kwargs...)
     u,t=simulate(model,params; full_solution=true, kwargs...)
     plot(model, u,t)
 end
@@ -31,33 +36,27 @@ function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs.
 end
 
 # TODO Refactor so this shares code with simulate and plot.
-function interactive_plot(model, param_ranges; tspan=Inf, alg=nothing, dt=0.1, num_verts=64, reltol=1e-6,abstol=1e-8, maxiters = 1e6, hide_y=true)
-    n = num_verts
-    alg = something(alg, ETDRK4())
+function interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs...)
+    simulate_ = simulate(model; num_verts=num_verts, kwargs...)
+    function f(vals...)
+        params = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
+        u,t = parameter_set(model,params) |> simulate_
+        u
+    end
 
-    u0 = createIC(model, n)
-    steadystate = DiscreteCallback((u,t,integrator) -> isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol), terminate!)
-    make_prob, transform = pseudospectral_problem(model, u0, tspan; callback=steadystate, maxiters=maxiters, dt=dt, abstol=abstol, reltol=reltol)
-   
+    
 	fig=Figure()
 	ax = Axis(fig[1,1])
 	hide_y && hideydecorations!(ax)
 
-    # Replace parameter names with actual Symbolics variables.
-    param_ranges = Dict((@parameters $k)[1] => v for (k,v) in param_ranges)
-    param_ranges = sort_params(param_ranges)
+    param_ranges = sort(param_ranges)
     slider_specs = [(label=string(k), range = v isa AbstractRange ? v : 1:length(v)) for (k,v) in param_ranges]
 
     sg = SliderGrid(fig[1,2], slider_specs...)
-    function f(vals...)
-        params = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
-        prob = make_prob(params)
-        sol =  solve(prob, alg)
-        transform(sol.u[end])
-    end
+
     U = lift(f, (sl.value for sl in sg.sliders)...)
     U = throttle(1/120, U) # Limit update rate to 120Hz
-    x = range(0,1,n)
+    x = range(0,1,num_verts)
     labels = [string(s.f) for s in species(model)]
     for i in eachindex(eachcol(U[]))
         lines!(ax, x, lift(u -> u[:,i], U); label=labels[i])

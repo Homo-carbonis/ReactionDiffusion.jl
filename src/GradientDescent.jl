@@ -2,7 +2,7 @@ module GradientDescent
 export optimise, plot_cost
 
 using ..Util: defspecies, defparams, zip_dict, unzip_dict, tmap
-using ..Models: createIC, pseudospectral_problem
+using ..Models: pseudospectral_problem
 using ..Simulate
 using Symbolics, Catalyst
 using FiniteDiff

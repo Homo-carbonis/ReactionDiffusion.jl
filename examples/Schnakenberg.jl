@@ -10,14 +10,12 @@ reaction = @reaction_network begin
     γ*U^2,          V --> ∅
 end 
 
-diffusion = @diffusion_system 100 begin
+diffusion = @diffusion_system L begin
     Dᵤ, U
     Dᵥ, V
 end
 
 model = Model(reaction, diffusion)
-params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0)
+params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0, :L=>100.0)
 
-sol = simulate(model,params; full_solution=true)
-plot_interactiove
 end

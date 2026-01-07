@@ -2,16 +2,16 @@ module Turing
 export turing_wavelength, is_turing, filter_turing, turing_wavelength_problem
 
 using ..Models
-using ..Util: issingle, lookup, tmap, tfilter
+using ..Util: issingle, tmap, tfilter
 
 using Groebner
 using Symbolics: jacobian, symbolic_solve, substitute, build_function, Num
 using LinearAlgebra: diagm, eigvals
 using Base.Threads: @threads
 
-turing_wavelength(model, params; k=logrange(0.1,100,100)) = turing_wavelength(model;k=k)(params)
+turing_wavelength(model, params; k=logrange(0.01,1000,1000)) = turing_wavelength(model;k=k)(params)
 
-function turing_wavelength(model; k=logrange(0.1,100,100))   
+function turing_wavelength(model; k=logrange(0.01,1000,1000))   
     du = reaction_rates(model)
     u = Num.(species(model))  # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
     ps = parameters(model)
@@ -25,8 +25,8 @@ function turing_wavelength(model; k=logrange(0.1,100,100))
 
     k² = k.^2
 
-    function f(params)
-        lookup(params)
+    f(params) = f(parameter_set(model, params))
+    function f(params::ParameterSet)
         p = [params[key] for key in ps]
         J = fjac(p)
         all(<(eps(J[1])), real(eigvals(J))) || return 0.0

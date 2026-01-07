@@ -23,7 +23,7 @@ end
 model = Model(reaction, diffusion)
 
 ## Pick some parameter sets to test.
-params = dict(
+params = parameter_set(model, dict(
     L = 2.0,
     # `anterior` and `posterior` are defined as step functions in space. 
     anterior = <(1/12),   # 1 in the anterior 12th of the domain, 0 elsewhere.
@@ -39,7 +39,7 @@ params = dict(
     D_bcd = 1.0,
     D_nos = 1.0,
     D_hb = 0.1
-)
+))
 
 ## Simulate the system with one of the "good" parameter sets and plot the results over time. 
 ReactionDiffusion.plot(model, params; abstol=1e-3)

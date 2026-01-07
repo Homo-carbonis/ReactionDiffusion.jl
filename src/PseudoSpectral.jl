@@ -10,7 +10,6 @@ using Symbolics: @variables, sparsejacobian, build_function, substitute
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(species, reaction_rates, diffusion_rates, num_verts; kwargs...)
-    u0 = copy(u0)
     n = num_verts
     m = length(species)
     u0 = Matrix{Float64}(undef, n, m)
@@ -20,14 +19,13 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, num_ve
     R = reaction_operator(species, reaction_rates, u0, rs, plan!)
     D = diffusion_operator(diffusion_rates, u0, ds)
 
-    prob = SplitODEProblem(D, R, vec(u0), tspan, nothing; kwargs...)
+    prob = SplitODEProblem(D, R, vec(u0), Inf, nothing; kwargs...)
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = stack(params[k] for k in rs)
-        d = [params[k] for k in ds]
-        u0 = stack(params[k] for k in species)
-        any(p isa AbstractVector for p in d) && error("Spatially dependent diffusion parameters are not yet supported.")
+        d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
+        u0 = vec(stack(params[k] for k in species))
         u = Matrix{Float64}(undef, n, m) # Allocate working memory for dct.
         p = Parameters(u,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
