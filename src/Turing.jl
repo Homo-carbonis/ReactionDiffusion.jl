@@ -9,6 +9,14 @@ using Symbolics: jacobian, symbolic_solve, substitute, build_function, Num
 using LinearAlgebra: diagm, eigvals
 using Base.Threads: @threads
 
+
+"""
+    turing_wavelength(model, params; k=logrange(0.01,1000,1000))
+
+Compute dominant wavelengths of Turing instabilities for each of `params`.
+Returns 0.0 for parameter sets for which Turing instability does not occur.
+"""
+
 turing_wavelength(model, params; k=logrange(0.01,1000,1000)) = turing_wavelength(model;k=k)(params)
 
 function turing_wavelength(model; k=logrange(0.01,1000,1000))   
@@ -36,16 +44,23 @@ function turing_wavelength(model; k=logrange(0.01,1000,1000))
     end
 end
 
+"""
+    is_turing(model,params)
 
+Test whether `params` exhibit Turing instability.
+"""
 is_turing(model, params) = is_turing(model)(params)
 
 function is_turing(model)
     f = turing_wavelength(model)
     params -> any(>(0.0), f(params))
 end
+"""
+    filter_turing(model,params)
 
+Return only `params` which demonstrate Turing instability. Multithreaded.
+"""
 function filter_turing(model,params)
-    params = lookup.(params)
     f = turing_wavelength(model)
     tfilter(params) do p
         f(p) > 0.0
