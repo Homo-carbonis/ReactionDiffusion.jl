@@ -8,11 +8,24 @@ using Printf: @sprintf
 using Makie
 using Observables
 
+"""
+    plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+
+Simulate and plot the results. The remaining `kwargs` are passed to `simulate`.
+"""
 function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
     u,t=simulate(model,params; full_solution=true, kwargs...)
     plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits)
 end
 
+
+"""
+    function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
+
+Display a solution in an interactive plot with a scrubber to move through time.
+
+If `normalise` is true, values for different species will be normalised to a common scale.
+"""
 function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
     labels = [string(s.f) for s in species(model)]
     x_steps = size(u, 1)
@@ -35,7 +48,12 @@ function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs.
     display(fig)
 end
 
-# TODO Refactor so this shares code with simulate and plot.
+"""
+    interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs...)
+
+Generate an interactive plot of the steady state solution with sliders to adjust each of the parameters within `param_ranges`.
+`param_ranges` should be a dictionary mapping parameter names to either `Range` objects or collections of possible values.
+"""
 function interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs...)
     simulate_ = simulate(model; num_verts=num_verts, kwargs...)
     function f(vals...)
@@ -43,7 +61,6 @@ function interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs
         u,t = parameter_set(model,params) |> simulate_
         u
     end
-
     
 	fig=Figure()
 	ax = Axis(fig[1,1])

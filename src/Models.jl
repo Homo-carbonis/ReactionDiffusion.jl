@@ -12,26 +12,23 @@ export pseudospectral_problem
 import ModelingToolkit: ODESystem
 export ODESystem
 
-import Random: seed!
-export seed!
-
 using Symbolics: Num, value
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
 using Catalyst: numspecies, numparams, assemble_oderhs, @transport_reaction, @parameters
 using ..Util: subst, ensure_function
 
-"Contains all information about the model which is independent of the parameter values and method of solution."
+"""
+    Model(reaction, diffusion)
+
+An object containing a mathematical description of a reaction diffusion system to be simulated, independent of parameter values, initial conditions and means of solution.
+
+# Fields
+- `reaction::ReactionSystem`
+- `diffusion::DiffusionSystem`
+"""
 struct Model
     reaction
     diffusion
-    initial_conditions
-    initial_noise
-    seed
-end
-
-function Model(reaction, diffusion; initial_conditions=Dict(), initial_noise=0.01, seed=nothing)
-    seed = something(seed, rand(Int))
-    Model(reaction, diffusion, Dict(initial_conditions), initial_noise, seed)
 end
 
 # Don't try to broadcast over a model.
@@ -62,7 +59,6 @@ function domain_size(model::Model, params)
 end
 
 is_fixed_size(model::Model) = typeof(domain_size(model)) != Num # TODO use type system. 
-noise(model::Model) = model.initial_noise
 
 reaction_parameters(model::Model, params, default=0.0) = subst(reaction_parameters(model), params, default)
 #diffusion_parameters(model::Model, params, default=0.0) = get_vector(params, diffusion_parameters(model), default)
@@ -73,11 +69,8 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
     [(substitute(D, params)) for D in diffusion_rates(model,default)]
 end
 
-initial_conditions(model::Model, default=0.0) = subst(species(model), model.initial_conditions, default)
 pseudospectral_problem(model, num_verts; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), num_verts; kwargs...)
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
-
-seed!(model::Model) = seed!(model.seed)
 
 
 struct DiffusionSystem
@@ -87,11 +80,18 @@ end
 
 
 """
-    @diffusion_system L begin D, S;... end
-Define a spatial domain of length and a set of diffusion rates. Values can be either fixed numbers or parameter symbols.
-- `L`: Length of the domain.
-- `D`: Diffusion rate.
-- `S`: Species name.
+    @diffusion_system L begin D, species;... end
+
+Define a spatial domain of length `L` and a set of diffusion rates for the given species.
+`D` can be either a fixed numeric value or a parameter name.
+
+# Example
+```
+@diffusion_system L begin
+    0.5, U
+    Dᵥ,  V
+end
+```
 """
 macro diffusion_system(L, body)
     diffusion_system(L,body,__source__)
@@ -111,6 +111,13 @@ function diffusion_system(L, body::Expr, source)
 end
 
 ParameterSet = Dict{Num, Union{Float64,Function}}
+
+"""
+    function parameter_set(model, params; σ=0.001)
+
+Create a set of parameter values and initial conditions for `model`.
+Defaults are used for values missing from `params` and noise with standard deviation `σ` is added to the intial conditions. 
+"""
 function parameter_set(model, params; σ=0.001)
     set = ParameterSet()
     for s in species(model)
@@ -127,9 +134,8 @@ function parameter_set(model, params; σ=0.001)
     end
     
     L = domain_size(model)
-    if L isa Num 
-        set[L] = get(params, nameof(L), 1.0)
-    end
+    is_fixed_size(model) || set[L] = get(params, nameof(L), 1.0)
+
     set
 end
 

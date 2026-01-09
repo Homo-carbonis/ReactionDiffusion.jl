@@ -5,7 +5,7 @@ Sometimes you may wish to save some results for later analysis (for example, if 
 ```julia
 using JLD2
 ##Save solution for a later date
-jldsave("test.jld2"; model, params, turing_params, u, t) 
+jldsave("test.jld2"; model, params, u, t) 
 ```
 
 Then, to load the files:

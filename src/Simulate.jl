@@ -10,25 +10,28 @@ using ProgressMeter: Progress, BarGlyphs, next!
 
 
 """
-    simulate(model,params; tspan=Inf, discretisation=:pseudospectral, alg=ETDRK4(), dt=0.01, dx=domain_size(model)/128, reltol=1e-6,abstol=1e-8)
+    simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
 
-Simulate `model` for a single parameter set `param`.
 
-Required inputs:
-- `model`: `Model`` object containg the system to be simulated.
-- `param`: all reaction and diffusion parameters, in a Dict or collection of pairs. 
+Simulate `model` for the parameters and initial conditions given in `params`, stopping when a steady state is reached. Returns `(u,t)` with the solution values and time.
 
-Inputs carried over from DifferentialEquations.jl; see [here](https://docs.sciml.ai/DiffEqDocs/stable/) for further details:
-- `alg`: solver algorithm
-- `abstol` and `reltol`: tolerance levels of solvers
-- `dt`: value for timestep
 
-Additional Inputs
-- `dx`: distance between points in spatial discretisation.
-- `maxrepeats`: Number of times to halve dt and retry if the solver scheme proves unstable.
+# Arguments
+- `model`: `Model` object containg the system to be simulated.
+- `params`: Either a single parameter set or a vector of parameter sets to be solved as an ensemble. Parameter sets can be created manually with parameter_set or supplied as a dict or collection of pairs in which case defaults will be used for any missed values and low-level noise added to initial conditions. Parameters values may be either single numbers which are replicated homogenously over the domain, or functions mapping the interval [0.0,1.0] to values for the corresponding point in space. 
+- `output_func(u,t)`: Function to transform output values. 
+- `full_solution`: Return a vector of values at each time point if true, instead of just the steady-state solution.
+- `max_repeats`: Number of times to retry with reduced dt before giving up if the solution fails to converge. 
+- `num_verts`: Number of points in spatial discretisation.
+For other keyword arguments see https://docs.sciml.ai/DiffEqDocs/stable/basics/common_solver_opts/.
 """
 simulate(model, params; kwargs...) = simulate(model; kwargs...)(params)
 
+"""
+    function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
+
+Partially applied version of `simulate` to avoid repeating expensive setup when simulating the same model reapeatedly.
+"""
 function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
     make_prob, transform = pseudospectral_problem(model, num_verts)
 

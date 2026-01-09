@@ -1,0 +1,22 @@
+# Plot results
+To visualise the results, you can use a variety of plotting packages (e.g., Makie.jl, Plots.jl). We provide a collection of interactive plotting tools built using `Makie.jl`.
+
+To display the time series for a given parameter set,
+```julia
+using WGLMakie
+plot(model,params)
+```
+Use the slider to view the solution at different points in time.
+
+For a fully interactive simulation, use the `interactive_plot` tool. This will allow you to adjust parameters and view the resulting steady-state solution in real time.
+
+```julia
+param_ranges = dict(
+    μ₁ = range(0.5,2.0,100),
+    μ₂ = [x->exp(-λ*x) for λ in range(1.0,10.0,100)],
+    D₃ = range(1.0,100.0,100)
+)
+interactive_plot(model, param_ranges)
+```
+
+Each parameter in `param_ranges` can be adjusted within the given range using the sliders. Here we provide a range of functions for μ₂ which produce varying spatial gradients.
