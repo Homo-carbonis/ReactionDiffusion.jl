@@ -134,7 +134,7 @@ function parameter_set(model, params; σ=0.001)
     end
     
     L = domain_size(model)
-    is_fixed_size(model) || set[L] = get(params, nameof(L), 1.0)
+    is_fixed_size(model) || (set[L] = get(params, nameof(L), 1.0))
 
     set
 end
