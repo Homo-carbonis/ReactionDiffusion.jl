@@ -9,11 +9,11 @@ makedocs(
         assets=["assets/favicon.ico"]
     ),
     pages = [
-      #  "Home" => "index.md",
-      #  "Tutorial" => ["tutorial/installation.md", "tutorial/model.md", "tutorial/params.md", "tutorial/screen.md", "tutorial/simulate.md", "tutorial/save.md"],
-      #  # "Examples" => Any["examples/cima.md","examples/gm.md","examples/schnakenburg.md"],
-      #  "API" => "API/api.md",
-        "Cheatsheet" => "cheatsheet.md"
+       "Home" => "index.md",
+       "Tutorial" => ["tutorial/installation.md", "tutorial/model.md", "tutorial/params.md", "tutorial/turing.md", "tutorial/simulate.md", "tutorial/simulate.md", "tutorial/save.md"],
+       # "Examples" => Any["examples/cima.md","examples/gm.md","examples/schnakenburg.md"],
+       "API" => "API/api.md",
+      #  "Cheatsheet" => "cheatsheet.md"
     ],
     doctest =false,
     clean=true,

@@ -18,7 +18,7 @@ simulate
 turing_wavelength
 is_turing
 filter_turing
-plot
+timeseries_plot
 interactive_plot
 ```
 

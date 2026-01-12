@@ -1,5 +1,5 @@
 module Plot
-export plot, interactive_plot
+export timeseries_plot, interactive_plot
 using ..Simulate
 using ..Models
 using LinearAlgebra: norm
@@ -9,24 +9,24 @@ using Makie
 using Observables
 
 """
-    plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+    timeseries_plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
 
 Simulate and plot the results. The remaining `kwargs` are passed to `simulate`.
 """
-function plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+function timeseries_plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
     u,t=simulate(model,params; full_solution=true, kwargs...)
-    plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits)
+    timeseries_plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits)
 end
 
 
 """
-    function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
+    function timeseries_plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
 
 Display a solution in an interactive plot with a scrubber to move through time.
 
 If `normalise` is true, values for different species will be normalised to a common scale.
 """
-function plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
+function timeseries_plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
     labels = [string(s.f) for s in species(model)]
     x_steps = size(u, 1)
     x = range(0.0,1.0,length=x_steps)

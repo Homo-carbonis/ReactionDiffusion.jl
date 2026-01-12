@@ -4,7 +4,7 @@ To visualise the results, you can use a variety of plotting packages (e.g., Maki
 To display the time series for a given parameter set,
 ```julia
 using WGLMakie
-plot(model,params)
+timeseries_plot(model,params)
 ```
 Use the slider to view the solution at different points in time.
 
