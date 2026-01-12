@@ -51,8 +51,3 @@ params = product(
 )
 
 tp = filter_turing(model,params)
-
- ((K₁^n₁)*μ₁) / (w^n₁ + K₁^n₁) + k₋*z - x*δ₁ - k₊*y*x
- ((K₂^n₂)*μ₂) / (K₂^n₂ + w^n₂) + k₋*z - y*δ₂ - k₊*y*x
- -k₋*z + k₊*y*x
- x*μ₃ - w*δ₃

@@ -139,6 +139,8 @@ function parameter_set(model, params; σ=0.001)
     set
 end
 
+parameter_set(params::ParameterSet) = params
+
 
 addnoise(σ=1.0) = x -> max(0.0, x + σ*randn())
 
