@@ -6,6 +6,7 @@ using ..Util: issingle, tmap, tfilter
 
 using Groebner
 using Symbolics: jacobian, symbolic_solve, substitute, build_function, Num
+using SteadyStateDiffEq
 using LinearAlgebra: diagm, eigvals
 using Base.Threads: @threads
 
@@ -24,24 +25,41 @@ function turing_wavelength(model; k=logrange(0.01,1000,1000))
     u = Num.(species(model))  # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
     ps = parameters(model)
     jac = jacobian(du,u; simplify=true)
-    ss = symbolic_solve(du, u)
-    jac_ss = substitute(jac, only(ss)) # TODO: Handle multiple steady states.
-    (fjac,fjac!) = build_function(jac_ss, ps; expression=Val{false})
-
     d = diffusion_rates(model)
     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
-
     k² = k.^2
-
-    f(params) = f(parameter_set(model, params))
-    function f(params::ParameterSet)
-        p = [params[key] for key in ps]
-        J = fjac(p)
-        all(<(eps(J[1])), real(eigvals(J))) || return 0.0
-        D = fd(p)
-        real_max, i = findmax(real(eigvals(J - D * k²)[end]) for k² in k²)
-        real_max > 0.0 ? 2pi/k[i] : 0.0
+    
+    ss = symbolic_solve(du, u)
+    
+    if isnothing(ss)
+        # Fall back to numerical solution.
+        (fjac,fjac!) = build_function(jac, u, ps; expression=Val{false})
+        u0 = zeros(num_species(model))
+        ss_prob = SteadyStateProblem(du, u0)
+        function f(params::ParameterSet)
+            p = [params[key] for key in ps]
+            prob = remake(ss_prob; p=p)
+            ss = solve(prob, SSRootFind())
+            J = fjac(ss, p)
+            all(<(eps(J[1])), real(eigvals(J))) || return 0.0
+            D = fd(p)
+            real_max, i = findmax(real(eigvals(J - D * k²)[end]) for k² in k²)
+            real_max > 0.0 ? 2pi/k[i] : 0.0
+        end
+        
+    else
+        jac_ss = substitute(jac, only(ss)) # TODO: Handle multiple steady states.
+        (fjac,fjac!) = build_function(jac_ss, ps; expression=Val{false})
+        function f(params::ParameterSet)
+            p = [params[key] for key in ps]
+            J = fjac(p)
+            all(<(eps(J[1])), real(eigvals(J))) || return 0.0
+            D = fd(p)
+            real_max, i = findmax(real(eigvals(J - D * k²)[end]) for k² in k²)
+            real_max > 0.0 ? 2pi/k[i] : 0.0
+        end
     end
+    f(params) = f(parameter_set(model, params))
 end
 
 """
