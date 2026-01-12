@@ -19,7 +19,7 @@ makedocs(
     clean=true,
     modules=[ReactionDiffusion, Catalyst],
     checkdocs=:public,
-    checkdocs_ignored_modules = [ReactionDiffusion.PseudoSpectral]
+    checkdocs_ignored_modules = [ReactionDiffusion.PseudoSpectral, Catalyst]
 )
 
 # deploydocs(repo = "github.com/hiscocklab/ReactionDiffusion.jl.git";
