@@ -1,6 +1,6 @@
 #push!(LOAD_PATH,"../src/")
 
-using Documenter, ReactionDiffusion
+using Documenter, ReactionDiffusion, Catalyst
 
 makedocs(
     sitename="ReactionDiffusion.jl",
@@ -15,9 +15,9 @@ makedocs(
        "API" => "API/api.md",
       #  "Cheatsheet" => "cheatsheet.md"
     ],
-    doctest =false,
+    doctest = false,
     clean=true,
-    modules=[ReactionDiffusion],
+    modules=[ReactionDiffusion, Catalyst],
     checkdocs=:public,
     checkdocs_ignored_modules = [ReactionDiffusion.PseudoSpectral]
 )

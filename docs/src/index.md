@@ -12,7 +12,7 @@ Here we show how `ReactionDiffusion.jl` can be used to simulate a biologically-i
 
 We begin by specifying the reaction-diffusion dynamics via the intuitive syntax developed in [Catalyst.jl](https://github.com/SciML/Catalyst.jl), which naturally mirrors biochemical feedbacks and interactions.
 
-```@example quickstart
+```julia
 using ReactionDiffusion
 
 reaction = @reaction_network begin
@@ -40,7 +40,7 @@ model = Model(reaction, diffusion)
 
 We can then specify possible values for each parameter:
 
-```@example quickstart
+```julia
 params = product(
     μ₁ = [1.0],
     μ₂ = range(0.1,10,5),
@@ -62,7 +62,7 @@ params = product(
 
 Then, with a single line of code, we can perform a Turing instability analysis across all combinations of parameters:
 
-```@example quickstart
+```julia
 turing_params = filter_turing(model, params);
 ```
 
@@ -70,20 +70,20 @@ This returns all parameter combinations that can break symmetry from a homogeneo
 
 We may then take a collection of parameter sets and simulate their spatiotemporal dynamics directly.
 
-```@example quickstart
+```julia
 sol = simulate(model,turing_params)
 ```
 
 We may also view the full spatiotemporal dynamics of a particular parameter set:
 
-```@example quickstart
+```julia
 using WGLMakie
 timeseries_plot(model,turing_params[4])
 ```
 
 Or view the results of adjusting parameters of interest in real time.
 
-```@example quickstart
+```julia
 param_ranges = dict(
     μ₁ = range(0.5,2.0,100),
     μ₂ = [x->exp(-λ*x) for λ in range(1.0,10.0,100)],

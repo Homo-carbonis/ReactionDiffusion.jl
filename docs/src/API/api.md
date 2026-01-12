@@ -11,7 +11,7 @@ If you require more customization or a more flexible PDE-solving framework, we h
 # Functions
 ```@docs
 Model
-@reaction_system
+@reaction_network
 @diffusion_system
 parameter_set
 simulate

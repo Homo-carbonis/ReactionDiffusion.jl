@@ -18,7 +18,6 @@ using Base.Threads: @threads
 Compute dominant wavelengths of Turing instabilities for each of `params`.
 Returns 0.0 for parameter sets for which Turing instability does not occur.
 """
-
 turing_wavelength(model, params; k=logrange(0.01,1000,1000)) = turing_wavelength(model;k=k)(params)
 
 function turing_wavelength(model; k=logrange(0.01,1000,1000))   
