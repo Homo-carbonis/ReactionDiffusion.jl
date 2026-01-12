@@ -67,7 +67,7 @@ function interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs
 	hide_y && hideydecorations!(ax)
 
     param_ranges = sort(param_ranges)
-    slider_specs = [(label=string(k), range = v isa AbstractRange ? v : 1:length(v)) for (k,v) in param_ranges]
+    slider_specs = [eltype(v) <: AbstractFloat ? (label=string(k), range = v, format = x->@sprintf("%.2f",x)) : (label=string(k), range = 1:length(v)) for (k,v) in param_ranges]
 
     sg = SliderGrid(fig[1,2], slider_specs...)
 

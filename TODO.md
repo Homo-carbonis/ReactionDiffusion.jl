@@ -5,3 +5,4 @@
 - Allow for transport processes other than classical diffusion.
 - Support default parameters as defined with `@parameters a=2.0` etc.
 - Access solutions by species rather than integer index.
+- Accept parameter values given as integers.
