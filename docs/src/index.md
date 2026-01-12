@@ -77,7 +77,8 @@ sol = simulate(model,turing_params)
 We may also view the full spatiotemporal dynamics of a particular parameter set:
 
 ```@example quickstart
-plot(model,turing_params[4])
+using WGLMakie
+timeseries_plot(model,turing_params[4])
 ```
 
 Or view the results of adjusting parameters of interest in real time.

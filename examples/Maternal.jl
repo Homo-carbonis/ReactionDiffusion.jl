@@ -42,7 +42,7 @@ params = dict(
 )
 
 ## Simulate the system with one of the "good" parameter sets and plot the results over time. 
-ReactionDiffusion.plot(model, params; abstol=1e-3)
+timeseries_plot(model, params; abstol=1e-3)
 
 ## Define some plausible ranges of parameter values to explore.
 param_ranges = dict(
@@ -63,4 +63,4 @@ param_ranges = dict(
 )
 
 ## Create an interactive plot with sliders to change each parameter.
-ReactionDiffusion.interactive_plot(model, param_ranges)
+interactive_plot(model, param_ranges)
