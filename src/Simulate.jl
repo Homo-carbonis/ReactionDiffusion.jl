@@ -32,8 +32,8 @@ simulate(model, params; kwargs...) = simulate(model; kwargs...)(params)
 
 Partially applied version of `simulate` to avoid repeating expensive setup when simulating the same model reapeatedly.
 """
-function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
-    make_prob, transform = pseudospectral_problem(model, num_verts)
+function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, boundary_conditions=(0.0,0.0), kwargs...)
+    make_prob, transform = pseudospectral_problem(model, num_verts, boundary_conditions)
 
     f(params) = f([params]) |> only # Accept a single parameter set instead of a vector.
     f(params::AbstractVector) = f(parameter_set.(model, params))

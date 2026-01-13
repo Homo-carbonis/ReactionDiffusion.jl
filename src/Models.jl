@@ -69,7 +69,8 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
     [(substitute(D, params)) for D in diffusion_rates(model,default)]
 end
 
-pseudospectral_problem(model, num_verts; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), num_verts; kwargs...)
+# boundary_conditions is temporary. 
+pseudospectral_problem(model, num_verts, boundary_conditions; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), boundary_conditions, num_verts; kwargs...)
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 
