@@ -36,15 +36,18 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
     # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
     ϕ = -[a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions] # Why the sign change? Something to do with normals of the DCT?
+    @show ϕ
+    @show bs
     (fϕ,fϕ!) = build_function(ϕ, bs; expression=Val{false})
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = stack(params[k] for k in rs)
         d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
-        b = [params[k][1] for k in bs] # Expanding bc params makes no sense...
+        b = [params[k][1] for k in bs] # Expanding bc params makes no sense... Maybe only expand rs in simulate.
         u0 = stack(params[k] for k in species)
         ϕ = fϕ(b)
+        @show typeof(ϕ)
         Φ = copy(ϕ)
         plan! * Φ
         Φ .*= σ² # Φ = Δϕ̃
@@ -57,23 +60,24 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
 
-    function _transform(u, ϕ)
-        plan! * u
-        u .+= ϕ
-    end
+
     # Function to transform output back to spatial domain.
+    # TODO: Avoid unnecessary allocation.
     function transform(sol; full_solution=false)
         ϕ = sol.prob.p.ϕ
-        if full_solution
-            u = reshape.(sol.u,n,m)
-            U = stack(_transform(u, ϕ) for u in u)
-            T = sol.t
-        else
-            u = reshape(sol.u[end],n,m)
-            U = _transfrom(u, ϕ)
-            T = sol.t[end]
+        function f(u)
+            u = reshape(u,n,m)
+            plan! * u
+            u .+= ϕ
         end
-        (U,T)
+        if full_solution
+            u = stack(f.(sol.u))
+            t = sol.t
+        else
+            u = f(sol.u[end])
+            t = sol.t[end]
+        end
+        (u,t)
     end
 
     make_problem, transform
