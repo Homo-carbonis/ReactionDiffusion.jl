@@ -35,8 +35,9 @@ sort_params(p) = sort(p, by=nameof)
 "Replace parameter names with actual Symbolics variables."
 lookup(name::Symbol) = only(@parameters $name)
 lookup(param::Num) = param
-"Extract parameters from a set of expressions and sort them by name."
-collect_params(exprs, vars=[]) = @pipe exprs .|> get_variables |> splat(union) |> setdiff(_,vars) |> sort_params
+"Extract variables from a (possibly nested) collection of expressions and sort them by name."
+collect_variables(exprs) = @pipe exprs .|> collect_variables |> splat(union) |> sort_params
+collect_variables(expr::Number) = get_variables(expr)
 
 
 # Parameter dictionaries TODO: Do nothing on Num keys.

@@ -9,12 +9,13 @@ export Model, species, parameters, reaction_parameters, diffusion_parameters,
 import ..PseudoSpectral: pseudospectral_problem
 export pseudospectral_problem
 
+import ModelingToolkit # Needed for Catalyst internal DSL macros
 import ModelingToolkit: ODESystem
 export ODESystem
 
-using Symbolics: Num, value
+using Symbolics: Num, value, get_variables
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
-using Catalyst: numspecies, numparams, assemble_oderhs, @transport_reaction, @parameters
+using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata
 using ..Util: subst, ensure_function
 
 """
@@ -40,13 +41,22 @@ species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model))
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = union(Catalyst.parameters.(model.diffusion.spatial_reactions)...)
+diffusion_parameters(model::Model) = union(diffusion_parameters.(model.diffusion.spatial_reactions)...)
+boundary_parameters(model::Model) = union(boundary_parameters.(model.diffusion.spatial_reactions)...)
 
-reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
+reaction_rates(model) = assemble_oderhs(model.reaction, species(model)) .|> Num
+
 function diffusion_rates(model::Model, default=0.0)
     dict = Dict(r.species => r.rate for r in model.diffusion.spatial_reactions)
-    Num.(subst(species(model), dict, default))
+    subst(species(model), dict, default)
+
 end
+
+function boundary_conditions(model::Model, default=(0.0,0.0))
+    dict = Dict(r.species => r.boundary_conditions for r in model.diffusion.spatial_reactions)
+    subst(species(model), dict, default)
+end
+
 num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
 num_reaction_params(model::Model) = numparams(model.reaction)
@@ -70,24 +80,33 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
 end
 
 # boundary_conditions is temporary. 
-pseudospectral_problem(model, num_verts, boundary_conditions; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), boundary_conditions, num_verts; kwargs...)
+pseudospectral_problem(model, num_verts; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), boundary_conditions(model), num_verts; kwargs...)
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 
+struct DiffusionSystem
+    domain_size
+    spatial_reactions
+end
 
-
+struct SpatialReaction
+    rate
+    boundary_conditions
+    species
+end
 
 """
-    @diffusion_system L begin D, species;... end
+    @diffusion_system L begin D, [(a,b)], species;... end
 
-Define a spatial domain of length `L` and a set of diffusion rates for the given species.
-`D` can be either a fixed numeric value or a parameter name.
+Define a spatial domain of length `L` and a set of diffusion rates and Neumann boundary conditions for the given species.
+The boundary conditions `uₓ(0)=a` and `uₓ(L)=b` default to 0 if ommitted.
 
 # Example
 ```
 @diffusion_system L begin
-    0.5, U
-    Dᵥ,  V
+    0.5,             U
+    Dᵥ, (0.0, 0.5),  V
+    Dᵣ/k, (a, a*s),  R
 end
 ```
 """
@@ -99,20 +118,52 @@ macro diffusion_system(body)
     diffusion_system(1,body,__source__)
 end
 
-#TODO stop using transport_reaction.
+
 function diffusion_system(L, body::Expr, source)
     Base.remove_linenums!(body)
-    ps_expr = Expr(:(=), esc(L), Expr(:ref, Expr(:macrocall, Symbol("@parameters"), source, L), 1))
-    trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
-    ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
-    L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
+    parameters = ExprValues[]
+    species = ExprValues[]
+    L isa Symbol && push!(parameters, L)
+ 
+    srexprs = [spatial_reaction(species, parameters, b.args...) for b in body.args]
+    iv = :($(DEFAULT_IV_SYM) = default_t())
+    sexprs = get_usexpr(species, Dict{Symbol, Expr}())
+    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}())
+    dsexpr = :(DiffusionSystem(L, [$(srexprs...)]))
+    quote
+        $iv
+        $sexprs
+        $pexprs
+        $dsexpr
+    end
 end
 
+# Use zero-flux BCs by default.
+spatial_reaction(species, parameters, rateex, s) = spatial_reaction(species, parameters, rateex, :(0.0,0.0), s)
 
-struct DiffusionSystem
-    domain_size
-    spatial_reactions
+function spatial_reaction(species, parameters, rateex, bcex, s)
+    # Handle interpolation of variables
+    rateex = esc_dollars!(rateex)
+    bcex = esc_dollars!(bcex)
+    s = esc_dollars!(s)
+    push!(species, s)
+
+    # Parses input expression.
+    @show bcex
+    find_parameters_in_rate!(parameters, rateex)
+    find_parameters_in_rate!(parameters, bcex.args[1])
+    find_parameters_in_rate!(parameters, bcex.args[2])
+    # Checks for input errors.
+    forbidden_symbol_check(union([s], parameters))
+
+    # Creates expressions corresponding to actual code from the internal DSL representation.
+    :(SpatialReaction($rateex, $bcex, $s))
 end
+
+species(sr::SpatialReaction) = sr.species
+diffusion_parameters(sr::SpatialReaction) = get_variables(sr.rate)
+boundary_parameters(sr::SpatialReaction) = union(get_variables.(sr.boundary_conditions)...)
+
 
 ParameterSet = Dict{Num, Union{Float64,Function}}
 
@@ -124,6 +175,8 @@ Defaults are used for values missing from `params` and noise with standard devia
 """
 function parameter_set(model, params; σ=0.001)
     set = ParameterSet()
+    
+    # Initial conditions
     for s in species(model)
         p = get(params, nameof(s.f), 0.0)
         set[s] = iszero(σ) ? p : addnoise(σ) ∘ ensure_function(p)
@@ -137,8 +190,15 @@ function parameter_set(model, params; σ=0.001)
         set[ds] = get(params, nameof(ds), 0.0)
     end
     
-    L = domain_size(model)
-    is_fixed_size(model) || (set[L] = get(params, nameof(L), 1.0))
+    for ds in boundary_parameters(model)
+        set[ds] = get(params, nameof(ds), 0.0)
+    end
+    
+    # Domain size
+    if !is_fixed_size(model)
+        L = domain_size(model)
+        set[L] = get(params, nameof(L), 1.0)
+    end
 
     set
 end
