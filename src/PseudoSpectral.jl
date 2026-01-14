@@ -27,7 +27,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # For u′(0) = a, u′(1) = b,
     # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
     # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
-    a,b = boundary_conditions
+    a, b = .-boundary_conditions # Why the sign change? Something to do with ghost points of DCT?
     ϕ0 = [a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n)] 
     ϕ = stack(ϕ0 for i in 1:m) # Should change for each species, but repeat the same bcs for now.
     Φ = copy(ϕ)

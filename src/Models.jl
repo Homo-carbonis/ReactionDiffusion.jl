@@ -74,10 +74,7 @@ pseudospectral_problem(model, num_verts, boundary_conditions; kwargs...) = pseud
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 
-struct DiffusionSystem
-    domain_size
-    spatial_reactions
-end
+
 
 
 """
@@ -109,6 +106,12 @@ function diffusion_system(L, body::Expr, source)
     trs_expr = Expr(:vect, (:(@transport_reaction $D/$L^2 $S) for (D,S) in getproperty.(body.args,:args))...)
     ds_expr = Expr(:call, DiffusionSystem, L, trs_expr)
     L isa Symbol ? Expr(:block, ps_expr, ds_expr) : ds_expr
+end
+
+
+struct DiffusionSystem
+    domain_size
+    spatial_reactions
 end
 
 ParameterSet = Dict{Num, Union{Float64,Function}}
