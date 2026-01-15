@@ -1,6 +1,6 @@
 module Util
 using Pipe: @pipe
-using Catalyst: @species, @parameters
+using Catalyst: @species, @parameters, isspecies
 using Symbolics: get_variables, Num
 using Base.Threads: @threads
 
@@ -31,13 +31,14 @@ unzip_dict(dict) = (collect(keys(dict)), collect(values(dict)))
 
 ## Parameters 
 "Sort parameters by name."
-sort_params(p) = sort(p, by=nameof)
+sort_params(p) = sort(p, by=_nameof)
+_nameof(v) = isspecies(v) ? nameof(v.val.f) : nameof(v)
 "Replace parameter names with actual Symbolics variables."
 lookup(name::Symbol) = only(@parameters $name)
 lookup(param::Num) = param
 "Extract variables from a (possibly nested) collection of expressions and sort them by name."
 collect_variables(exprs) = @pipe exprs .|> collect_variables |> splat(union) |> sort_params
-collect_variables(expr::Number) = get_variables(expr)
+collect_variables(expr::Number) = get_variables(expr) .|> Num
 
 
 # Parameter dictionaries TODO: Do nothing on Num keys.

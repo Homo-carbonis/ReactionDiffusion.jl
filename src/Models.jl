@@ -17,7 +17,7 @@ using Symbolics: Num, value, get_variables
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
 using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata
 using ..Util: subst, ensure_function
-
+# TODO CHECK for unnecessary Num conversions! Alternatively add needed Num conversions (and remove from Turing.jl)
 """
     Model(reaction, diffusion)
 
@@ -44,12 +44,11 @@ reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
 diffusion_parameters(model::Model) = union(diffusion_parameters.(model.diffusion.spatial_reactions)...)
 boundary_parameters(model::Model) = union(boundary_parameters.(model.diffusion.spatial_reactions)...)
 
-reaction_rates(model) = assemble_oderhs(model.reaction, species(model)) .|> Num
+reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 
 function diffusion_rates(model::Model, default=0.0)
     dict = Dict(r.species => r.rate for r in model.diffusion.spatial_reactions)
     subst(species(model), dict, default)
-
 end
 
 function boundary_conditions(model::Model, default=(0.0,0.0))

@@ -22,10 +22,10 @@ turing_wavelength(model, params; k=logrange(0.01,1000,1000)) = turing_wavelength
 
 function turing_wavelength(model; k=logrange(0.01,1000,1000))   
     du = reaction_rates(model)
-    u = Num.(species(model))  # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
+    u = species(model) .|> Num # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
     ps = parameters(model)
     jac = jacobian(du,u; simplify=true)
-    d = diffusion_rates(model)
+    d = diffusion_rates(model) .|> Num
     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
     k² = k.^2
     

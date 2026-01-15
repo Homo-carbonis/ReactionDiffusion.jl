@@ -20,8 +20,8 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     ## 2nd order Fourier differentiation coefficients.
     # For a continuous FT this would be σ² = -(k/2pi h)^2, but corrected for
     # the discrete transform this becomes:
-    σ² = @. -(4/h^2) * sin(k*pi/(2*(n-1)))^2 
-    
+    σ² = @. -(4/h^2) * sin(k*pi/(2*(n-1)))^2
+    @show typeof(reaction_rates)
     rs = setdiff(collect_variables(reaction_rates), species) 
     ds = collect_variables(diffusion_rates)
     bs = collect_variables(boundary_conditions)
@@ -37,7 +37,8 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     ϕ = -[a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions] # Why the sign change? Something to do with normals of the DCT?
     (fϕ,fϕ!) = build_function(ϕ, bs; expression=Val{false})
     # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
-    Φ = 2*(n-1)*(a-b)/sqrt(2*(n-1)) 
+    @show boundary_conditions
+    Φ = -[[2*(n-1)*(b-a)/sqrt(2*(n-1)) for (a,b) in boundary_conditions]' ; zeros(n-1,m)]
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
@@ -97,7 +98,7 @@ function reaction_operator(species, reaction_rates, ps, plan!)
         p.u .+= p.ϕ
         f!(du, p.u, p.r)
         plan! * du
-        du[1,:] .+= p.Φ
+        du .+= p.Φ
         nothing
     end
     ODEFunction(f̂!; jac=fjac!)
