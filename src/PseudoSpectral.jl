@@ -6,7 +6,6 @@ using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coeffici
 using FFTW: plan_r2r!, REDFT00, MEASURE
 using Symbolics: @variables, sparsejacobian, build_function, substitute
 
-
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, num_verts; kwargs...)
@@ -36,9 +35,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
     # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
     ϕ = -[a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions] # Why the sign change? Something to do with normals of the DCT?
-    @show ϕ
-    @show bs
     (fϕ,fϕ!) = build_function(ϕ, bs; expression=Val{false})
+    # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
+    Φ = 2*(n-1)*(a-b)/sqrt(2*(n-1)) 
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
@@ -47,10 +46,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         b = [params[k][1] for k in bs] # Expanding bc params makes no sense... Maybe only expand rs in simulate.
         u0 = stack(params[k] for k in species)
         ϕ = fϕ(b)
-        @show typeof(ϕ)
-        Φ = copy(ϕ)
-        plan! * Φ
-        Φ .*= σ² # Φ = Δϕ̃
         u0 .-= ϕ
         plan! * u0
         u0 = vec(u0)
@@ -102,7 +97,7 @@ function reaction_operator(species, reaction_rates, ps, plan!)
         p.u .+= p.ϕ
         f!(du, p.u, p.r)
         plan! * du
-        du .+= p.Φ
+        du[1,:] .+= p.Φ
         nothing
     end
     ODEFunction(f̂!; jac=fjac!)
