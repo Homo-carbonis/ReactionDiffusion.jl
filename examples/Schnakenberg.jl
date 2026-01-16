@@ -11,11 +11,11 @@ reaction = @reaction_network begin
 end 
 
 diffusion = @diffusion_system L begin
-    Dᵤ, U
-    Dᵥ, V
+    Dᵤ, (aᵤ,bᵤ), U
+    Dᵥ, (aᵥ,bᵥ), V
 end
 
 model = Model(reaction, diffusion)
-params = (:a => 0.2, :b => 2.0, :γ => 1.0, :Dᵤ => 1.0, :Dᵥ => 50.0, :L=>100.0)
+params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0)
 
 end

@@ -41,7 +41,7 @@ species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model))
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = union(diffusion_parameters.(model.diffusion.spatial_reactions)...)
+diffusion_parameters(model::Model) = union(get_variables(model.diffusion.domain_size), diffusion_parameters.(model.diffusion.spatial_reactions)...)
 boundary_parameters(model::Model) = union(boundary_parameters.(model.diffusion.spatial_reactions)...)
 
 reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
@@ -78,8 +78,11 @@ function diffusion_rates(model::Model, params::Dict{Symbol, Float64}, default=0.
     [(substitute(D, params)) for D in diffusion_rates(model,default)]
 end
 
-# boundary_conditions is temporary. 
-pseudospectral_problem(model, num_verts; kwargs...) = pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model), boundary_conditions(model), num_verts; kwargs...)
+function pseudospectral_problem(model, num_verts; kwargs...)
+    L = domain_size(model)
+    pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model)/L^2, (./).(boundary_conditions(model), L), num_verts; kwargs...)
+end
+
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 
@@ -122,13 +125,20 @@ function diffusion_system(L, body::Expr, source)
     Base.remove_linenums!(body)
     parameters = ExprValues[]
     species = ExprValues[]
-    L isa Symbol && push!(parameters, L)
  
+    # Build a vector of spatial_reaction constructor calls and simultaneously
+    # collect parameter and species names.
     srexprs = [spatial_reaction(species, parameters, b.args...) for b in body.args]
+    find_parameters_in_rate!(parameters, L)
     iv = :($(DEFAULT_IV_SYM) = default_t())
-    sexprs = get_usexpr(species, Dict{Symbol, Expr}())
-    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}())
-    dsexpr = :(DiffusionSystem(L, [$(srexprs...)]))
+    
+    forbidden_symbol_check(species)
+    forbidden_symbol_check(parameters)
+
+    sexprs = get_usexpr(species, Dict{Symbol, Expr}()) # @species
+    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    dsexpr = :(DiffusionSystem($L, [$(srexprs...)]))
+
     quote
         $iv
         $sexprs
@@ -148,15 +158,13 @@ function spatial_reaction(species, parameters, rateex, bcex, s)
     push!(species, s)
 
     # Parses input expression.
-    @show bcex
     find_parameters_in_rate!(parameters, rateex)
     find_parameters_in_rate!(parameters, bcex.args[1])
     find_parameters_in_rate!(parameters, bcex.args[2])
     # Checks for input errors.
-    forbidden_symbol_check(union([s], parameters))
 
     # Creates expressions corresponding to actual code from the internal DSL representation.
-    :(SpatialReaction($rateex, $bcex, $s))
+    :(SpatialReaction($rateex,  $bcex, $s))
 end
 
 species(sr::SpatialReaction) = sr.species

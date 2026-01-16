@@ -25,7 +25,8 @@ function turing_wavelength(model; k=logrange(0.01,1000,1000))
     u = species(model) .|> Num # For some unfathomable reason, symbolic_solve complains about missing Groebner if we don't convert u to Num.
     ps = parameters(model)
     jac = jacobian(du,u; simplify=true)
-    d = diffusion_rates(model) .|> Num
+    d = diffusion_rates(model)/domain_size(model)^2
+    @show ps
     (fd,fd!) = build_function(diagm(d), ps; expression=Val{false})
     k² = k.^2
     

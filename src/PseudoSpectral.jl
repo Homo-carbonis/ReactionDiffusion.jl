@@ -34,11 +34,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # For u′(0) = a, u′(1) = b,
     # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
     # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
-    ϕ = -[a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions] # Why the sign change? Something to do with normals of the DCT?
+    ϕ = [a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions]
     (fϕ,fϕ!) = build_function(ϕ, bs; expression=Val{false})
     # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
     @show boundary_conditions
-    Φ = -[[2*(n-1)*(b-a)/sqrt(2*(n-1)) for (a,b) in boundary_conditions]' ; zeros(n-1,m)]
+    Φ = [[2*(n-1)*(b-a)/sqrt(2*(n-1)) for (a,b) in boundary_conditions]' ; zeros(n-1,m)]
+    (fΦ,fΦ!) = build_function(Φ, bs; expression=Val{false})
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
@@ -47,6 +48,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         b = [params[k][1] for k in bs] # Expanding bc params makes no sense... Maybe only expand rs in simulate.
         u0 = stack(params[k] for k in species)
         ϕ = fϕ(b)
+        Φ = fΦ(b)
         u0 .-= ϕ
         plan! * u0
         u0 = vec(u0)
