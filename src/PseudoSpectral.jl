@@ -5,10 +5,11 @@ using ..Util: collect_variables
 using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coefficients!, remake
 using FFTW: plan_r2r!, REDFT00, MEASURE
 using Symbolics: @variables, sparsejacobian, build_function, substitute
+using Statistics: mean
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, num_verts; kwargs...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, (boundary0, boundary1), num_verts; kwargs...)
     n = num_verts
     m = length(species)
     u0 = Matrix{Float64}(undef, n, m)
@@ -30,16 +31,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 
     prob = SplitODEProblem(D, R, vec(u0), Inf, nothing; kwargs...)
 
-    ## Offsets for non-zero-flux boundary conditions.
-    # For u′(0) = a, u′(1) = b,
-    # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
-    # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
-    ϕ = [a * x + (b-a)/2 * x^2 for x in range(0.0,1.0,n), (a,b) in boundary_conditions]
-    (fϕ,fϕ!) = build_function(ϕ, bs; expression=Val{false})
-    # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
-    @show boundary_conditions
-    Φ = [[2*(n-1)*(b-a)/sqrt(2*(n-1)) for (a,b) in boundary_conditions]' ; zeros(n-1,m)]
-    (fΦ,fΦ!) = build_function(Φ, bs; expression=Val{false})
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
@@ -47,13 +38,11 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
         b = [params[k][1] for k in bs] # Expanding bc params makes no sense... Maybe only expand rs in simulate.
         u0 = stack(params[k] for k in species)
-        ϕ = fϕ(b)
-        Φ = fΦ(b)
-        u0 .-= ϕ
+        ū = mean(u0; dims=1)
         plan! * u0
         u0 = vec(u0)
         u = Matrix{Float64}(undef, n, m) # Allocate working memory for dct.
-        p = Parameters(u,r,d,ϕ,Φ,state)
+        p = Parameters(u,r,d,ū,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
@@ -62,11 +51,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Function to transform output back to spatial domain.
     # TODO: Avoid unnecessary allocation.
     function transform(sol; full_solution=false)
-        ϕ = sol.prob.p.ϕ
         function f(u)
             u = reshape(u,n,m)
             plan! * u
-            u .+= ϕ
         end
         if full_solution
             u = stack(f.(sol.u))
@@ -89,18 +76,20 @@ function reaction_operator(species, reaction_rates, ps, plan!)
     # Do clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
     du = stack([substitute(expr, Dict([zip(species,v)..., zip(ps,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u),eachrow(p)); dims=1)
+    α = [substitute(expr, Dict([zip(species,u[1,:])..., zip(ps,p[1,:])...])) for expr in boundary_conditions[1]]
+    β = [substitute(expr, Dict([zip(species,u[end,:])..., zip(ps,p[end,:])...])) for expr in boundary_conditions[2]]
+    du = vcat(du, (β - α + sum(u;dim=1))')
+
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     (f,f!) = build_function(du, u, p; expression=Val{false})
     (fjac,fjac!) = build_function(jac, vec(u), p, (); expression=Val{false})
-
     function f̂!(du,u,p,t)
         du=reshape(du,n,m)
         p.u .= reshape(u,n,m)
         plan! * p.u
-        p.u .+= p.ϕ
+        p.u += p.ū
         f!(du, p.u, p.r)
         plan! * du
-        du .+= p.Φ
         nothing
     end
     ODEFunction(f̂!; jac=fjac!)
@@ -115,13 +104,15 @@ function diffusion_operator(diffusion_rates, ps, σ²)
     DiagonalOperator(λ0; update_func! = update!)
 end
 
+function zero_mode_problem(bleh)
+    f!(du,u,p,t) = β(p.u[end]) - α(p.u[0]) + sum(f(p.u))
+end
 
 struct Parameters
     u # Working array for dct.
     r # Reaction parameter matrix.
     d # Diffusion parameter vector.
-    ϕ # Neumann offset function
-    Φ # Transform of Laplacian of ϕ.
+    ū # mean
     state # Only used for metadata.
 end
 

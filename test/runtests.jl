@@ -57,8 +57,8 @@ end
 
 @testset "Boundary Conditions" begin
     model = Schnakenberg.model
-    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, aᵤ=0.1, bᵤ=0.5, L=100.0)
-    n = 128
+    params = dict(γ = 0.0, Dᵤ = 1.0, Dᵥ = 50.0, aᵤ=0.1, bᵤ=0.5, L=100.0)
+    n = 256
     h = params[:L]/n
     u,t = simulate(model, params; num_verts = n, tspan=100.0, dt=0.01)
 

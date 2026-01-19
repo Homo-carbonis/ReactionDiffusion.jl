@@ -26,10 +26,12 @@ An object containing a mathematical description of a reaction diffusion system t
 # Fields
 - `reaction::ReactionSystem`
 - `diffusion::DiffusionSystem`
+- `boundary_conditions::(ReactionSystem, ReactionSystem)`
 """
 struct Model
     reaction
     diffusion
+    boundary_conditions
 end
 
 # Don't try to broadcast over a model.
@@ -80,7 +82,11 @@ end
 
 function pseudospectral_problem(model, num_verts; kwargs...)
     L = domain_size(model)
-    pseudospectral_problem(species(model), reaction_rates(model), diffusion_rates(model)/L^2, (./).(boundary_conditions(model), L), num_verts; kwargs...)
+    s = species(model)
+    D = diffusion_rates(model)/L^2
+    R = reaction_rates(model)
+    B = (reaction_rates(b)./(L*D) for b in boundary_conditions(model)) 
+    pseudospectral_problem(s, R, D, B, num_verts; kwargs...)
 end
 
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
