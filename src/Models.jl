@@ -15,7 +15,7 @@ export ODESystem
 
 using Symbolics: Num, value, get_variables
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
-using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata
+using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, @reaction_network, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata
 using ..Util: subst, ensure_function
 # TODO CHECK for unnecessary Num conversions! Alternatively add needed Num conversions (and remove from Turing.jl)
 """
@@ -34,6 +34,8 @@ struct Model
     boundary_conditions
 end
 
+Model(reaction,diffusion) = Model(reaction, diffusion, (@reaction_network, @reaction_network))
+
 # Don't try to broadcast over a model.
 Base.broadcastable(model::Model) =  Ref(model)
 
@@ -43,8 +45,8 @@ species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model))
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = union(get_variables(model.diffusion.domain_size), diffusion_parameters.(model.diffusion.spatial_reactions)...)
-boundary_parameters(model::Model) = union(boundary_parameters.(model.diffusion.spatial_reactions)...)
+diffusion_parameters(model::Model) = union(get_variables(model.diffusion.domain_size), parameters.(model.diffusion.spatial_reactions)...)
+boundary_parameters(model::Model) = union(Catalyst.parameters.(model.boundary_conditions)...)
 
 reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 
@@ -53,9 +55,10 @@ function diffusion_rates(model::Model, default=0.0)
     subst(species(model), dict, default)
 end
 
-function boundary_conditions(model::Model, default=(0.0,0.0))
-    dict = Dict(r.species => r.boundary_conditions for r in model.diffusion.spatial_reactions)
-    subst(species(model), dict, default)
+function boundary_conditions(model::Model)
+    b0,b1 = model.boundary_conditions
+    s = species(model)
+    (assemble_oderhs(b0, s), assemble_oderhs(b1, s))
 end
 
 num_species(model::Model) = numspecies(model.reaction)
@@ -85,7 +88,8 @@ function pseudospectral_problem(model, num_verts; kwargs...)
     s = species(model)
     D = diffusion_rates(model)/L^2
     R = reaction_rates(model)
-    B = (reaction_rates(b)./(L*D) for b in boundary_conditions(model)) 
+    b0,b1 = boundary_conditions(model)
+    B = (-b0./(L*D), -b1./(L*D))
     pseudospectral_problem(s, R, D, B, num_verts; kwargs...)
 end
 
@@ -99,7 +103,6 @@ end
 
 struct SpatialReaction
     rate
-    boundary_conditions
     species
 end
 
@@ -153,29 +156,21 @@ function diffusion_system(L, body::Expr, source)
     end
 end
 
-# Use zero-flux BCs by default.
-spatial_reaction(species, parameters, rateex, s) = spatial_reaction(species, parameters, rateex, :(0.0,0.0), s)
-
-function spatial_reaction(species, parameters, rateex, bcex, s)
+function spatial_reaction(species, parameters, rateex, s)
     # Handle interpolation of variables
     rateex = esc_dollars!(rateex)
-    bcex = esc_dollars!(bcex)
     s = esc_dollars!(s)
     push!(species, s)
 
     # Parses input expression.
     find_parameters_in_rate!(parameters, rateex)
-    find_parameters_in_rate!(parameters, bcex.args[1])
-    find_parameters_in_rate!(parameters, bcex.args[2])
-    # Checks for input errors.
 
     # Creates expressions corresponding to actual code from the internal DSL representation.
-    :(SpatialReaction($rateex,  $bcex, $s))
+    :(SpatialReaction($rateex, $s))
 end
 
 species(sr::SpatialReaction) = sr.species
-diffusion_parameters(sr::SpatialReaction) = get_variables(sr.rate)
-boundary_parameters(sr::SpatialReaction) = union(get_variables.(sr.boundary_conditions)...)
+parameters(sr::SpatialReaction) = get_variables(sr.rate)
 
 
 ParameterSet = Dict{Num, Union{Float64,Function}}

@@ -11,8 +11,8 @@ reaction = @reaction_network begin
 end 
 
 diffusion = @diffusion_system L begin
-    Dᵤ, (aᵤ,bᵤ), U
-    Dᵥ, (aᵥ,bᵥ), V
+    Dᵤ, U
+    Dᵥ, V
 end
 
 model = Model(reaction, diffusion)
