@@ -1,7 +1,7 @@
 module PseudoSpectral
 
 export pseudospectral_problem
-using ..Util: collect_variables
+using ..Util: collect_variables, safe_stack
 using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coefficients!, remake
 using FFTW: plan_r2r!, REDFT00, MEASURE
 using Symbolics: @variables, sparsejacobian, build_function, substitute
@@ -17,7 +17,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
   
 
     rs = setdiff(collect_variables(reaction_rates,boundary_conditions), species)
-    @show rs
     ds = collect_variables(diffusion_rates)
     R = reaction_operator(species, reaction_rates, boundary_conditions, rs, plan!)
     D = diffusion_operator(diffusion_rates, ds, n)
@@ -27,9 +26,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
-        r = stack(params[k] for k in rs)
+        r = safe_stack((params[k] for k in rs), n) # Use safe_stack to handle case with no parameters.
         d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
-        u = stack(params[k] for k in species)
+        u = safe_stack((params[k] for k in species), n)
         ū = mean(u; dims=1)
         u .-= ū
         u0 = vcat(ū, u)
@@ -74,7 +73,6 @@ function reaction_operator(species, reaction_rates, (boundary0, boundary1), ps, 
     β = [substitute(expr, Dict([zip(species,u[end,:])..., zip(ps,p[end,:])...])) for expr in boundary1]'
     dū = β - α + mean(du; dims=1)
     du = vcat(dū, du) # Add extra point for zero mode.
-
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     (f,f!) = build_function(du, u, p; expression=Val{false})
     (fjac,fjac!) = build_function(jac, vec(u), p, (); expression=Val{false})

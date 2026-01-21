@@ -29,22 +29,17 @@ unzip_dict(dict) = (collect(keys(dict)), collect(values(dict)))
 
 
 
-## Parameters 
+## Symbolics 
 "Sort parameters by name."
-sort_params(p) = sort(p, by=_nameof)
+sort_variables(p) = sort(p, by=_nameof)
 _nameof(v) = isspecies(v) ? nameof(v.f) : nameof(v)
-"Replace parameter names with actual Symbolics variables."
-lookup(name::Symbol) = only(@parameters $name)
-lookup(param::Num) = param
+
 
 "Extract variables from a (possibly nested) collection of expressions and sort them by name."
 collect_variables(exprs...) = collect_variables(exprs) # Combine multiple arguments.
-collect_variables(exprs::Union{Tuple,Vector}) = @pipe exprs .|> collect_variables |> splat(union) |> sort_params
+collect_variables(exprs::Union{Tuple,Vector}) = @pipe exprs .|> collect_variables |> splat(union) |> sort_variables
 collect_variables(expr) = get_variables(expr) # Call recursively until we get down to a single expression.
 
-
-# Parameter dictionaries TODO: Do nothing on Num keys.
-lookup(params::AbstractDict) = Dict(lookup(k) => v for (k,v) in params)
 
 ## Subscripted symbols
 "Map integers to subscript characters."
@@ -98,6 +93,22 @@ ensure_vector(x) = [x]
 ensure_function(f::Function) = f
 ensure_function(x) = _ -> x
 
-
+# Arrays
+"""
+Modified version of `stack` which returns stacks of zero depth when `iter` is empty instead of throwing an error.
+`size` should be the size of each item in `iter`.
+"""
+function safe_stack(iter::Union{AbstractVector{T}, Base.Generator{<:AbstractVector{T}, S}}, size; dims=2) where T where S
+    if isempty(iter)
+        size = [s for s in size]
+        if isempty(Base.size(size))
+            size = reshape(size,1)
+        end
+        insert!(size, dims, 0)
+        Array{T}(undef, size...)
+    else
+        stack(iter; dims=dims)
+    end
+end
 end
 
