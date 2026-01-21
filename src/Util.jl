@@ -99,6 +99,7 @@ Modified version of `stack` which returns stacks of zero depth when `iter` is em
 `size` should be the size of each item in `iter`.
 """
 function safe_stack(iter::Union{AbstractVector{T}, Base.Generator{<:AbstractVector{T}, S}}, size; dims=2) where T where S
+    @show collect(iter), size
     if isempty(iter)
         size = [s for s in size]
         if isempty(Base.size(size))

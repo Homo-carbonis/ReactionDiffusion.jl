@@ -7,3 +7,4 @@
 - Access solutions by species rather than integer index.
 - Accept parameter values given as integers.
 - Write tests for PseudoSpectral.jl
+- Handle non-spatially dependent input to PseudoSpectral.jl.
