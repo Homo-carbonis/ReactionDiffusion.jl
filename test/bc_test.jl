@@ -1,21 +1,31 @@
-    
-using ReactionDiffusion, WGLMakie
-include("../examples/Schnakenberg.jl")
+includet("../src/Util.jl")
+includet("../src/PseudoSpectral.jl")    
 
-reaction = @reaction_network begin
-    r, ∅ --> U
-    r, ∅ --> V
-end 
+using .PseudoSpectral
+using WGLMakie
+using Symbolics: @variables
+using OrdinaryDiffEqExponentialRK: ETDRK4
+using SciMLBase: solve, successful_retcode
+using Test
 
-diffusion = @diffusion_system L begin
-    Dᵤ, (1.0,-1.0), U
-    Dᵥ, (-1.0,-11.0), V
-end
+@variables U,a,b,d
 
-model = Model(reaction,diffusion)
-params = dict(r=0.0,A=1.0, B=-200.0, Dᵤ = 1.0, Dᵥ = 1.0, L=10.0)
+R = [0]
+D = [d/(pi)^2] # Divide by pi^2 for a domain of size pi.
+B = ([a/pi],[b/pi])
+n=128
+dt=0.001
+x = range(0.0,pi,n)
 
-n = 128
-h = params[:L]/n
+make_prob,transform = pseudospectral_problem([U], R, D, B, n)
 
-timeseries_plot(model, params; normalise=true, hide_y=false, num_verts = n, dt= 0.01, tspan=1.0)
+p = Dict(U=>sin.(x), a=>ones(n), b=>-ones(n), d=>ones(n))
+prob = make_prob(p)
+sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
+@test successful_retcode(sol)
+u,t = transform(sol)
+# @test u ≈ exp(-t)*sin.(x) rtol=1e-3;
+
+fig = lines(x,u[:,1])
+lines!(x,exp(-t)*sin.(x))
+fig
