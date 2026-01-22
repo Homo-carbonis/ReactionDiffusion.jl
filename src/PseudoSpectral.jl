@@ -18,11 +18,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     bs = setdiff(collect_variables(boundary_conditions), species)
     ds = collect_variables(diffusion_rates)
     
-    α = [substitute(expr, Dict([zip(species,u[1,:])..., zip(ps,p[1,:])...])) for expr in boundary0]'
-    β = [substitute(expr, Dict([zip(species,u[end,:])..., zip(ps,p[end,:])...])) for expr in boundary1]'
+    @variables u[1:n, 1:m]
+    α = [substitute(expr, Dict(zip(species,u[1,:]))) for expr in boundary_conditions[1]]'
+    β = [substitute(expr, Dict(zip(species,u[end,:]))) for expr in boundary_conditions[2]]'
     x = range(0.0,1.0,n)
     ϕ = x.^2 * (β - α)/2 + x*α
-    fϕ = build_function(ϕ, vec(u), p, (); expression=Val{false})
+    fϕ,fϕ! = build_function(ϕ, u, bs; expression=Val{false})
     
     R = reaction_operator(species, reaction_rates, boundary_conditions, rs, plan!)
     D = diffusion_operator(diffusion_rates, ds, n)
@@ -35,10 +36,10 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = safe_stack((params[k] for k in rs), n) # Use safe_stack to handle case with no reaction parameters.
-        b = params[k] for k in rs
-        d = [params[k][1] for k in ds] # Assume D is homogeneous for now.
+        b = [params[k] for k in rs]
+        d = [params[k] for k in ds]
         u0 = safe_stack((params[k] for k in species), n)
-        u0 .-= ϕ
+        u0 .-= fϕ(u0,b)
         plan! * u0
         u0 = vec(u0)
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
@@ -69,16 +70,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 end
 
 "Build function for the reaction component, with `f(v+ϕ) + Φ` offset for non-zero-flux BCs."
-function reaction_operator(species, reaction_rates, (boundary0, boundary1), ps, plan!)
+function reaction_operator(species, reaction_rates, ϕ, ps, bs, plan!)
     (n,m) = size(plan!)
     @variables u[1:n, 1:m]
     @variables p[1:n, 1:length(ps)]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    α = [substitute(expr, Dict([zip(species,u[1,:])..., zip(ps,p[1,:])...])) for expr in boundary0]'
-    β = [substitute(expr, Dict([zip(species,u[end,:])..., zip(ps,p[end,:])...])) for expr in boundary1]'
-    x = range(0.0,1.0,n)
-    ϕ = x.^2 * (β - α)/2 + x*α
     du = stack([substitute(expr, Dict([zip(species,v)..., zip(ps,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u+ϕ), eachrow(p)); dims=1)
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     (f,f!) = build_function(du, u, p; expression=Val{false})
