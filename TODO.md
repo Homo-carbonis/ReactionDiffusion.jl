@@ -8,3 +8,4 @@
 - Accept parameter values given as integers.
 - Write tests for PseudoSpectral.jl
 - Handle non-spatially dependent input to PseudoSpectral.jl.
+- Add initial conditions macro so ICs can depend on parameters.
