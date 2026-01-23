@@ -19,7 +19,7 @@ x = range(0.0,pi,n)
 
 make_prob,transform = pseudospectral_problem([U], R, D, B, n)
 
-p = Dict(U=>sin.(x), a=>ones(n), b=>-ones(n), d=>ones(n))
+p = Dict(U=>sin.(x), a=>1.0, b=>-1.0, d=>1.0)
 prob = make_prob(p)
 sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
 @test successful_retcode(sol)

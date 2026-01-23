@@ -38,9 +38,15 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
     f(params) = f([params]) |> only # Accept a single parameter set instead of a vector.
     f(params::AbstractVector) = f(parameter_set.(model, params))
     function f(params::Vector{ParameterSet})
-        isempty(params) && return EnsembleSolution([], 0.0, false)
-        params = [Dict(k => expand_spatial(v,num_verts) for (k,v) in p) for p in params]
+        isempty(params) && return EnsembleSolution([], 0.0, false) # Handle an empty collection of parameter sets.
         
+        # Expand reaction parameters into a spatial array.
+        for p in params
+            for k in reaction_parameters(model)
+                p[k] = expand_spatial(p[k],num_verts)
+            end
+        end
+
         progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
         function _output_func(sol,i)
