@@ -54,12 +54,13 @@ end
 Generate an interactive plot of the steady state solution with sliders to adjust each of the parameters within `param_ranges`.
 `param_ranges` should be a dictionary mapping parameter names to either `Range` objects or collections of possible values.
 """
-function interactive_plot(model, param_ranges; hide_y=true, num_verts=32, kwargs...)
+function interactive_plot(model, param_ranges; normalise=true, hide_y=true, num_verts=32, kwargs...)
     simulate_ = simulate(model; num_verts=num_verts, kwargs...)
     function f(vals...)
         params = Dict(k => x isa Int ? v[x] : x for ((k,v), x) in zip(param_ranges,vals))
         u,t = parameter_set(model,params) |> simulate_
-        u
+        r = norm.(eachcol(u))
+        normalise ? u ./ r' : u
     end
     
 	fig=Figure()
