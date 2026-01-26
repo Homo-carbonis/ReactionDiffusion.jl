@@ -35,8 +35,9 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = safe_stack((params[k] for k in rs), n) # Use safe_stack to handle case with no reaction parameters.
-        b = [params[k] for k in bs]
-        d = [params[k] for k in ds]
+        b = Float64[params[k] for k in bs]
+        d = Float64[params[k] for k in ds]
+        @show r; @show b; @show d
         u0 = safe_stack((params[k] for k in species), n)
         u0 .-= fϕ(u0,b)
         plan! * u0
@@ -76,8 +77,8 @@ function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
     @variables r[1:n, 1:length(rs)]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    du = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u+ϕ), eachrow(r)); dims=1)
-    @show collect.(du)
+    du = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u), eachrow(r)); dims=1)
+    @show collect(du[1])
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     f, f! = build_function(du, u, r, bs; expression=Val{false})
     _fjac, _fjac! = build_function(jac, vec(u), r, bs; expression=Val{false})
@@ -91,8 +92,7 @@ function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
         nothing
     end
     ODEFunction(f̂!; jac=fjac!)
-end
-
+end 
 "Build linear operator for the diffusion component."
 function diffusion_operator(diffusion_rates, ps, n)
     k = 0:n-1 # Wavenumbers

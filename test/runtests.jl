@@ -29,7 +29,7 @@ end
     model = Schnakenberg.model
     params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0)
     expected_periods = 1/turing_wavelength(model,params)
-    u,t = simulate(model, params)
+    u,t = simulate(model, params; tspan=1.0)
 
     u = u[:,1]
 
