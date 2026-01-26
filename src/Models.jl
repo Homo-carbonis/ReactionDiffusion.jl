@@ -1,5 +1,5 @@
 module Models
-export Model, species, parameters, reaction_parameters, diffusion_parameters,
+export Model, species, parameters, reaction_parameters, boundary_parameters, diffusion_parameters,
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_conditions, noise,
     reaction_rates, diffusion_rates,

@@ -8,7 +8,6 @@ using SciMLBase: solve, successful_retcode, EnsembleProblem, EnsembleSolution, D
 using OrdinaryDiffEqExponentialRK: ETDRK4
 using ProgressMeter: Progress, BarGlyphs, next!
 
-
 """
     simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
 
@@ -40,12 +39,18 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
     function f(params::Vector{ParameterSet})
         isempty(params) && return EnsembleSolution([], 0.0, false) # Handle an empty collection of parameter sets.
         
-        # Expand reaction parameters into a spatial array.
-        for p in params
-            for k in reaction_parameters(model)
-                p[k] = expand_spatial(p[k],num_verts)
+        # Expand reaction parameters into spatial arrays.
+        # TODO Refactor to pass r,b,d params seperately. This is horrible.
+        params_ = fill(Dict(), length(params))
+        for i in eachindex(params)
+            for k in [species(model); reaction_parameters(model)]
+                params_[i][k] = expand_spatial(params[i][k],num_verts)
+            end
+            for k in [diffusion_parameters(model) ; boundary_parameters(model)]
+                params_[i][k] = params[i][k]
             end
         end
+        params = params_
 
         progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 

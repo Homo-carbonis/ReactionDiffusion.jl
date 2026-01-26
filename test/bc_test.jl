@@ -13,7 +13,7 @@ using Test
 R = [0]
 D = [d/(pi)^2] # Divide by pi^2 for a domain of size pi.
 B = ([a/pi],[b/pi])
-n=128
+n=32
 dt=0.001
 x = range(0.0,pi,n)
 

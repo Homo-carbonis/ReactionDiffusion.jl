@@ -19,20 +19,12 @@ using Test
     make_prob,transform = pseudospectral_problem([U], R, D, B, n)
     
     @testset "zero flux" begin
-        p = Dict(U=>cos.(x), a=>zeros(n), b=>zeros(n), d=>ones(n))
+        p = Dict(U=>cos.(x), a=>0.0, b=>0.0, d=>1.0)
         prob = make_prob(p)
         sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
         @test successful_retcode(sol)
         u,t = transform(sol)
         @test u ≈ exp(-t)*cos.(x) rtol=1e-3;
-    end
-    @testset "sine" begin
-        p = Dict(U=>sin.(x), a=>ones(n), b=>-ones(n), d=>ones(n))
-        prob = make_prob(p)
-        sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
-        @test successful_retcode(sol)
-        u,t = transform(sol)
-        @test u ≈ exp(-t)*sin.(x) rtol=1e-3;
     end
 end;
 

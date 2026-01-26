@@ -22,13 +22,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     α = [substitute(expr, Dict(zip(species,u[1,:]))) for expr in boundary_conditions[1]]'
     β = [substitute(expr, Dict(zip(species,u[end,:]))) for expr in boundary_conditions[2]]'
     x = range(0.0,1.0,n)
-    ϕ = x.^2 * (β - α)/2 + x*α
+    # Use a cubic lifting function st. ϕ′(0) = α, ϕ′(1) = β and ϕ(0) = ϕ(1) = 0.
+    ϕ = x.^3 * (α + β) - x.^2 * (2α + β) + x * α
     fϕ,fϕ! = build_function(ϕ, u, bs; expression=Val{false})
-    
+
     R = reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
     D = diffusion_operator(diffusion_rates, ds, n)
-
-
 
     prob = SplitODEProblem(D, R, vec(u0), Inf, nothing; kwargs...)
 
@@ -39,7 +38,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         b = [params[k] for k in bs]
         d = [params[k] for k in ds]
         u0 = safe_stack((params[k] for k in species), n)
-        @show fϕ(u0,b)
         u0 .-= fϕ(u0,b)
         plan! * u0
         u0 = vec(u0)
@@ -56,7 +54,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         function f(u)
             u = reshape(u,n,m)
             plan! * u
-            u .+= fϕ(u, sol.p.b)
+            u .+= fϕ(u, sol.prob.p.b)
         end
         if full_solution
             u = stack(f.(sol.u))
@@ -79,6 +77,7 @@ function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
     du = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u+ϕ), eachrow(r)); dims=1)
+    @show collect.(du)
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     f, f! = build_function(du, u, r, bs; expression=Val{false})
     _fjac, _fjac! = build_function(jac, vec(u), r, bs; expression=Val{false})
@@ -104,7 +103,7 @@ function diffusion_operator(diffusion_rates, ps, n)
     # the discrete transform this becomes:
     σ² = @. -(4/h^2) * sin(k*pi/(2*(n-1)))^2
 
-    λ = vcat(0, σ² * diffusion_rates') |> vec # Add extra row of 0s to leave the zero mode unchanged.
+    λ = vec(σ² * diffusion_rates')
     (f,f!) = build_function(λ, ps; expression=Val{false})
     λ0 = similar(λ, Float64)
     update!(λ,u,p,t) = f!(λ, p.d)
