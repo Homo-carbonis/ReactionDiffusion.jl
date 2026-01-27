@@ -77,10 +77,10 @@ function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
     @variables r[1:n, 1:length(rs)]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    du = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u), eachrow(r)); dims=1)
-    @show collect(du[1])
+    f = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u+ϕ), eachrow(r)); dims=1)
+    du = f + Δϕ - ϕ̇
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
-    f, f! = build_function(du, u, r, bs; expression=Val{false})
+    _, f! = build_function(du, u, r, bs; expression=Val{false})
     _fjac, _fjac! = build_function(jac, vec(u), r, bs; expression=Val{false})
     fjac!(j,u,p,t) = _fjac!(j, u, p.r, p.b)
     function f̂!(du,u,p,t)
@@ -88,6 +88,7 @@ function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
         p.u .= reshape(u,n,m)
         plan! * p.u
         f!(du, u, p.r, p.b)
+        fΔϕ₊!(du,u,p.b)
         plan! * du
         nothing
     end

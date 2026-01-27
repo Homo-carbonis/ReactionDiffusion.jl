@@ -9,3 +9,6 @@
 - Write tests for PseudoSpectral.jl
 - Handle non-spatially dependent input to PseudoSpectral.jl.
 - Add initial conditions macro so ICs can depend on parameters.
+- Add x scale to plot
+- Normalise plots by range
+- Combine interactive and time series plots.
