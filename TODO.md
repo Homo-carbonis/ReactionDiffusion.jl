@@ -6,9 +6,10 @@
 - Support default parameters as defined with `@parameters a=2.0` etc.
 - Access solutions by species rather than integer index.
 - Accept parameter values given as integers.
-- Write tests for PseudoSpectral.jl
-- Handle non-spatially dependent input to PseudoSpectral.jl.
 - Add initial conditions macro so ICs can depend on parameters.
 - Add x scale to plot
-- Normalise plots by range
-- Combine interactive and time series plots.
+- Use LaTeX to label plots.
+- Normalise by range instead of norm
+- Make x a parameter instead of paramters being functions.
+- Combine time series and interactive plots.
+- Add output expressions combining species.
