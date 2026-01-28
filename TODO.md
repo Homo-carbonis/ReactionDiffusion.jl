@@ -12,3 +12,4 @@
 - Normalise by range instead of norm
 - Make x a parameter instead of paramters being functions.
 - Combine time series and interactive plots.
+- Add output expressions combining species.
