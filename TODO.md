@@ -7,3 +7,8 @@
 - Access solutions by species rather than integer index.
 - Accept parameter values given as integers.
 - Add initial conditions macro so ICs can depend on parameters.
+- Scale plot labels to domain size.
+- Use LaTeX to label plots.
+- Normalise by range instead of norm
+- Make x a parameter instead of paramters being functions.
+- Combine time series and interactive plots.
