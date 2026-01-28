@@ -1,45 +1,43 @@
 module PseudoSpectral
 
-export pseudospectral_problem
+export pseudospectral_problem, x
 using ..Util: collect_variables, safe_stack
 using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coefficients!, remake
 using FFTW: plan_r2r!, REDFT00, MEASURE
 using Symbolics: @variables, sparsejacobian, build_function, substitute
 
+x = only(@variables(x))
+
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, num_verts; kwargs...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, initial_conditions, num_verts; kwargs...)
+    # Collect parameter symbols. 
+    rs,ds,bs,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, boundary_conditions, initial_conditions))
+
     n = num_verts
     m = length(species)
-    u0 = Matrix{Float64}(undef, n, m)
-    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u0, REDFT00, 1; flags=MEASURE)
-  
-    rs = setdiff(collect_variables(reaction_rates), species)
-    bs = setdiff(collect_variables(boundary_conditions), species)
-    ds = collect_variables(diffusion_rates)
-    
-    @variables u[1:n, 1:m]
-    α = [substitute(expr, Dict(zip(species,u[1,:]))) for expr in boundary_conditions[1]]'
-    β = [substitute(expr, Dict(zip(species,u[end,:]))) for expr in boundary_conditions[2]]'
-    x = range(0.0,1.0,n)
-    # Use a cubic lifting function st. ϕ′(0) = α, ϕ′(1) = β and ϕ(0) = ϕ(1) = 0.
-    ϕ = x.^3 * (α + β) - x.^2 * (2α + β) + x * α
-    fϕ,fϕ! = build_function(ϕ, u, bs; expression=Val{false})
 
-    R = reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
+    # if isempty(species ∩ bv) 
+
+    u = Matrix{Float64}(undef, n, m)
+    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u, REDFT00, 1; flags=MEASURE)
+
+    R = reaction_operator(species, reaction_rates, rs, plan!)
     D = diffusion_operator(diffusion_rates, ds, n)
 
-    prob = SplitODEProblem(D, R, vec(u0), Inf, nothing; kwargs...)
+    prob = SplitODEProblem(D, R, vec(u), Inf, nothing; kwargs...)
 
+    u0 = [substitute(ic, x=>X) for X in range(0,1,n), ic in initial_conditions]
+    fu0,_= build_function(u0, is; expression=Val{false})
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
-        r = safe_stack((params[k] for k in rs), n) # Use safe_stack to handle case with no reaction parameters.
+        r = Float64[params[k] for k in rs]
         b = Float64[params[k] for k in bs]
         d = Float64[params[k] for k in ds]
-        @show r; @show b; @show d
-        u0 = safe_stack((params[k] for k in species), n)
-        u0 .-= fϕ(u0,b)
+        i = Float64[params[k] for k in is]
+        
+        u0 = fu0(i)
         plan! * u0
         u0 = vec(u0)
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
@@ -55,7 +53,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         function f(u)
             u = reshape(u,n,m)
             plan! * u
-            u .+= fϕ(u, sol.prob.p.b)
         end
         if full_solution
             u = stack(f.(sol.u))
@@ -71,27 +68,24 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 end
 
 "Build function for the reaction component, with `f(v+ϕ) + Φ` offset for non-zero-flux BCs."
-function reaction_operator(species, reaction_rates, ϕ, rs, bs, plan!)
+function reaction_operator(species, reaction_rates, rs, plan!)
     (n,m) = size(plan!)
     @variables u[1:n, 1:m]
-    @variables r[1:n, 1:length(rs)]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    f = stack([substitute(expr, Dict([zip(species,v)..., zip(rs,q)...])) for expr in reaction_rates] for (v,q) in zip(eachrow(u+ϕ), eachrow(r)); dims=1)
-    du = f + Δϕ - ϕ̇
+    du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for expr in reaction_rates, (v,X) in zip(eachrow(u), range(0,1,n))]
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
-    _, f! = build_function(du, u, r, bs; expression=Val{false})
-    _fjac, _fjac! = build_function(jac, vec(u), r, bs; expression=Val{false})
-    fjac!(j,u,p,t) = _fjac!(j, u, p.r, p.b)
+    _, f! = build_function(du, u, rs; expression=Val{false})
+    _, _fjac! = build_function(jac, vec(u), rs; expression=Val{false})
     function f̂!(du,u,p,t)
         du=reshape(du,n,m)
         p.u .= reshape(u,n,m)
         plan! * p.u
-        f!(du, u, p.r, p.b)
-        fΔϕ₊!(du,u,p.b)
+        f!(du, u, p.r)
         plan! * du
         nothing
     end
+    fjac!(j,u,p,t) = _fjac!(j, u, p.r)
     ODEFunction(f̂!; jac=fjac!)
 end 
 "Build linear operator for the diffusion component."

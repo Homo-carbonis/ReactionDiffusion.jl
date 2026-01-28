@@ -14,17 +14,17 @@ using Test
     B = ([a],[b])
     n=128
     dt=0.001
-    x = range(0.0,pi,n)
+    IC = [cos(pi*x)]
 
-    make_prob,transform = pseudospectral_problem([U], R, D, B, n)
-    
+    make_prob,transform = pseudospectral_problem([U], R, D, B, IC, n)
+    X = range(0,pi,n)
     @testset "zero flux" begin
-        p = Dict(U=>cos.(x), a=>0.0, b=>0.0, d=>1.0)
+        p = Dict(a=>0.0, b=>0.0, d=>1.0)
         prob = make_prob(p)
         sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
         @test successful_retcode(sol)
         u,t = transform(sol)
-        @test u ≈ exp(-t)*cos.(x) rtol=1e-3;
+        @test u ≈ exp(-t)*cos.(X) rtol=1e-3;
     end
 end;
 

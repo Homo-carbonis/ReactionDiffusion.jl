@@ -130,7 +130,7 @@ macro diffusion_system(body)
 end
 
 
-function diffusion_system(L, body::Expr, source)
+function diffusion_system(L, body, source)
     Base.remove_linenums!(body)
     parameters = ExprValues[]
     species = ExprValues[]
@@ -172,8 +172,39 @@ end
 species(sr::SpatialReaction) = sr.species
 parameters(sr::SpatialReaction) = get_variables(sr.rate)
 
+struct InitialConditions
+    value
+    species
+end
+macro initial_conditions(body)
+    Base.remove_linenums!(body)
+    parameters = ExprValues[]
+    species = ExprValues[]
+ 
+    # Build a vector of spatial_reaction constructor calls and simultaneously
+    # collect parameter and species names.
+    srexprs = [spatial_reaction(species, parameters, b.args...) for b in body.args]
+    find_parameters_in_rate!(parameters, L)
+    iv = :($(DEFAULT_IV_SYM) = default_t())
+    
+    forbidden_symbol_check(species)
+    forbidden_symbol_check(parameters)
 
-ParameterSet = Dict{Num, Union{Float64,Function}}
+    sexprs = get_usexpr(species, Dict{Symbol, Expr}()) # @species
+    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    dsexpr = :(DiffusionSystem($L, [$(srexprs...)]))
+
+    quote
+        $iv
+        $sexprs
+        $pexprs
+        $dsexpr
+    end
+end
+
+
+
+ParameterSet = Dict{Num, Float64}
 
 """
     function parameter_set(model, params; σ=0.001)
@@ -184,12 +215,6 @@ Defaults are used for values missing from `params` and noise with standard devia
 function parameter_set(model, params; σ=0.001)
     set = ParameterSet()
     
-    # Initial conditions
-    for s in species(model)
-        p = get(params, nameof(s.f), 0.0)
-        set[s] = iszero(σ) ? p : addnoise(σ) ∘ ensure_function(p)
-    end
-
     for rs in reaction_parameters(model)
         set[rs] = get(params, nameof(rs), 1.0)
     end
@@ -212,8 +237,5 @@ function parameter_set(model, params; σ=0.001)
 end
 
 parameter_set(params::ParameterSet) = params
-
-
-addnoise(σ=1.0) = x -> max(0.0, x + σ*randn())
 
 end

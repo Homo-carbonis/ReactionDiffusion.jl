@@ -39,20 +39,6 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
     f(params::AbstractVector) = f(parameter_set.(model, params))
     function f(params::Vector{ParameterSet})
         isempty(params) && return EnsembleSolution([], 0.0, false) # Handle an empty collection of parameter sets.
-        
-        # Expand reaction parameters into spatial arrays.
-        # TODO Refactor to pass r,b,d params seperately. This is horrible.
-        params_ = fill(Dict{Num, Union{Vector{Float64},Float64}}(), length(params))
-        for i in eachindex(params)
-            for k in [species(model); reaction_parameters(model)]
-                params_[i][k] = expand_spatial(params[i][k],num_verts)
-            end
-            for k in [diffusion_parameters(model) ; boundary_parameters(model)]
-                params_[i][k] = params[i][k]
-            end
-        end
-        params = params_
-        @show params[1]
 
         progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
@@ -75,9 +61,6 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
         solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(reltol,abstol), kwargs...)
     end
 end
-
-expand_spatial(x::Function, n) = x.(range(0.0,1.0,n))
-expand_spatial(x::Float64, n) = fill(x,n)
 
 
 function steady_state_callback(reltol=1e-4,abstol=1e-4)
