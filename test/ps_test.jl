@@ -11,15 +11,14 @@ using Test
 
     R = [0]
     D = [d/(pi)^2] # Divide by pi^2 for a domain of size pi.
-    B = ([a],[b])
     n=128
     dt=0.001
     IC = [cos(pi*x)]
 
-    make_prob,transform = pseudospectral_problem([U], R, D, B, IC, n)
+    make_prob,transform = pseudospectral_problem([U], R, D, IC, n)
     X = range(0,pi,n)
     @testset "zero flux" begin
-        p = Dict(a=>0.0, b=>0.0, d=>1.0)
+        p = Dict(d=>1.0)
         prob = make_prob(p)
         sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
         @test successful_retcode(sol)
@@ -27,5 +26,3 @@ using Test
         @test u ≈ exp(-t)*cos.(X) rtol=1e-3;
     end
 end;
-
-# @testset "Boundary Conditions"

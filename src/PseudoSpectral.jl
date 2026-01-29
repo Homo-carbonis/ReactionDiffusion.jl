@@ -10,15 +10,13 @@ x = only(@variables(x))
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, initial_conditions, num_verts; kwargs...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, initial_conditions, num_verts; kwargs...)
     # Collect parameter symbols. 
-    rs,ds,bs,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, boundary_conditions, initial_conditions))
+    rs,ds,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, initial_conditions))
 
     n = num_verts
     m = length(species)
-
-    # if isempty(species ∩ bv) 
-
+    
     u = Matrix{Float64}(undef, n, m)
     plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u, REDFT00, 1; flags=MEASURE)
 
@@ -33,7 +31,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = Float64[params[k] for k in rs]
-        b = Float64[params[k] for k in bs]
         d = Float64[params[k] for k in ds]
         i = Float64[params[k] for k in is]
         
@@ -41,7 +38,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         plan! * u0
         u0 = vec(u0)
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
-        p = Parameters(w,r,b,d,state)
+        p = Parameters(w,r,d,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
@@ -108,7 +105,6 @@ end
 struct Parameters
     u # Working array for dct.
     r # Reaction parameter matrix.
-    b # Boundary reaction parameter vector.
     d # Diffusion parameter vector.
     state # Only used for metadata.
 end

@@ -11,19 +11,14 @@ diffusion = @diffusion_system L begin
     Dᵥ, V
 end
 
-boundary1 = @reaction_network begin
-    aᵤ, ∅ --> U
-    aᵥ, ∅ --> V
+inital = @initial_conditions begin
+    U0, U
+    V0, V
 end
 
-boundary2 = @reaction_network begin
-    bᵤ, ∅ --> U
-    bᵥ, ∅ --> V
-end
-
-model = Model(reaction, diffusion, (boundary1, boundary2))
+model = Model(reaction, diffusion, initial)
 # model = Model(reaction, diffusion)
-params = dict(a = 0.2, b = 2.0, γ = 0.0, Dᵤ = 50.0, Dᵥ = 50.0, L=100.0, aᵤ=0.0, bᵤ=0.0, aᵥ=0.0, bᵥ=0.0)
+params = dict(a = 0.2, b = 2.0, γ = 0.0, Dᵤ = 50.0, Dᵥ = 50.0, L=100.0, U0=1.0, V0=2.0)
 # params = dict(γ = 0.0, Dᵤ = 10.0, Dᵥ = 50.0, L=100.0)
 # turing_wavelength(model,params)
 parameter_set(model,params)

@@ -21,23 +21,21 @@ using ..Util: subst, ensure_function
 """
     Model(reaction, diffusion)
 
-An object containing a mathematical description of a reaction diffusion system to be simulated, independent of parameter values, initial conditions and means of solution.
+An object containing a mathematical description of a reaction diffusion system to be simulated, independent of parameter values.
 
 # Fields
 - `reaction::ReactionSystem`
 - `diffusion::DiffusionSystem`
-- `boundary_conditions::(ReactionSystem, ReactionSystem)`
 """
 struct Model
     reaction
     diffusion
-    boundary_conditions
+    inital_conditions
 end
 
-Model(reaction,diffusion) = Model(reaction, diffusion, (@reaction_network, @reaction_network))
 
 # Don't try to broadcast over a model.
-Base.broadcastable(model::Model) =  Ref(model)
+Base.broadcastable(model::Model) = Ref(model)
 
 # Model getters
 # TODO Eliminate unused getters.
@@ -46,20 +44,14 @@ parameters(model::Model) = union(reaction_parameters(model), diffusion_parameter
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
 diffusion_parameters(model::Model) = union(get_variables(model.diffusion.domain_size), parameters.(model.diffusion.spatial_reactions)...)
-boundary_parameters(model::Model) = union(Catalyst.parameters.(model.boundary_conditions)...)
 
 reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 
-function diffusion_rates(model::Model, default=0.0)
-    dict = Dict(r.species => r.rate for r in model.diffusion.spatial_reactions)
-    subst(species(model), dict, default)
-end
+diffusion_rates(model::Model, default=0.0) = [get(model.diffusion.rates, s, default) for s in species(model)]
 
-function boundary_conditions(model::Model)
-    b0,b1 = model.boundary_conditions
-    s = species(model)
-    (assemble_oderhs(b0, s), assemble_oderhs(b1, s))
-end
+inital_conditions(model::Model, default=0.0) = [get(model.initial_conditions, s, default) for s in species(model)]
+
+
 
 num_species(model::Model) = numspecies(model.reaction)
 num_params(model::Model) = num_reaction_params(model) + num_diffusion_params(model)
@@ -85,12 +77,11 @@ end
 
 function pseudospectral_problem(model, num_verts; kwargs...)
     L = domain_size(model)
-    s = species(model)
-    D = diffusion_rates(model)/L^2
+    S = species(model)
     R = reaction_rates(model)
-    b0,b1 = boundary_conditions(model)
-    B = (-b0./(L*D), -b1./(L*D))
-    pseudospectral_problem(s, R, D, B, num_verts; kwargs...)
+    D = diffusion_rates(model)/L^2
+    I = initial_conditions(model)
+    pseudospectral_problem(S, R, D, I, num_verts; kwargs...)
 end
 
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
@@ -98,13 +89,9 @@ ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
 struct DiffusionSystem
     domain_size
-    spatial_reactions
+    rates
 end
 
-struct SpatialReaction
-    rate
-    species
-end
 
 """
     @diffusion_system L begin D, [(a,b)], species;... end
@@ -129,79 +116,57 @@ macro diffusion_system(body)
     diffusion_system(1,body,__source__)
 end
 
-
 function diffusion_system(L, body, source)
-    Base.remove_linenums!(body)
-    parameters = ExprValues[]
-    species = ExprValues[]
- 
-    # Build a vector of spatial_reaction constructor calls and simultaneously
-    # collect parameter and species names.
-    srexprs = [spatial_reaction(species, parameters, b.args...) for b in body.args]
-    find_parameters_in_rate!(parameters, L)
-    iv = :($(DEFAULT_IV_SYM) = default_t())
-    
-    forbidden_symbol_check(species)
+    species,parameters,pairs = parse_body(body, source)
+    L = parse_expr!(parameters, L)
     forbidden_symbol_check(parameters)
-
-    sexprs = get_usexpr(species, Dict{Symbol, Expr}()) # @species
-    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
-    dsexpr = :(DiffusionSystem($L, [$(srexprs...)]))
-
+    psexpr = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
+    dsexpr = :(DiffusionSystem($L, Dict($pairs)))
     quote
-        $iv
-        $sexprs
-        $pexprs
+        $psexpr
+        $sexpr
         $dsexpr
     end
 end
 
-function spatial_reaction(species, parameters, rateex, s)
-    # Handle interpolation of variables
-    rateex = esc_dollars!(rateex)
-    s = esc_dollars!(s)
-    push!(species, s)
-
-    # Parses input expression.
-    find_parameters_in_rate!(parameters, rateex)
-
-    # Creates expressions corresponding to actual code from the internal DSL representation.
-    :(SpatialReaction($rateex, $s))
-end
-
-species(sr::SpatialReaction) = sr.species
-parameters(sr::SpatialReaction) = get_variables(sr.rate)
-
-struct InitialConditions
-    value
-    species
-end
 macro initial_conditions(body)
-    Base.remove_linenums!(body)
-    parameters = ExprValues[]
-    species = ExprValues[]
- 
-    # Build a vector of spatial_reaction constructor calls and simultaneously
-    # collect parameter and species names.
-    srexprs = [spatial_reaction(species, parameters, b.args...) for b in body.args]
-    find_parameters_in_rate!(parameters, L)
-    iv = :($(DEFAULT_IV_SYM) = default_t())
-    
-    forbidden_symbol_check(species)
-    forbidden_symbol_check(parameters)
-
-    sexprs = get_usexpr(species, Dict{Symbol, Expr}()) # @species
-    pexprs = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
-    dsexpr = :(DiffusionSystem($L, [$(srexprs...)]))
-
+    species,parameters,pairs = parse_body(body, source)
+    psexpr = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
+    icexpr = :(Dict($pairs))
     quote
-        $iv
-        $sexprs
-        $pexprs
-        $dsexpr
+        $psexpr
+        $sexpr
+        $icexpr
     end
 end
 
+function parse_body!(species,parameters, body, source)
+    Base.remove_linenums!(body)
+    parameters = ExprValues[]
+    species = ExprValues[]
+    pairs = Pair{ExprValues,ExprValues}[]
+
+    for b in body.args
+        r,s = b.args
+        # Handle interpolation of variables
+        r = parse_expr!(parameters,r)
+        s = esc_dollars!(s)
+        push!(pairs, s=>r)
+        push!(species, s)
+    end
+
+    forbidden_symbol_check(species)
+    forbidden_symbol_check(parameters)
+    species, parameters, pairs
+end
+
+function parse_expr!(parameters, x)
+    esc_dollars!(x)
+    find_parameters_in_rate!(parameters, x)
+    x
+end
 
 
 ParameterSet = Dict{Num, Float64}
