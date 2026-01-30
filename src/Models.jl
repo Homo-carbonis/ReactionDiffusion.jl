@@ -131,7 +131,6 @@ function diffusion_system(L, body, source)
     iv = :($(DEFAULT_IV_SYM) = default_t()) # t
     sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
     dsexpr = :(DiffusionSystem($L, $rexpr))
-    @show dsexpr
     quote
         $psexpr
         $iv

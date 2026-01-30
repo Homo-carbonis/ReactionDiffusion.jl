@@ -34,10 +34,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, initia
         r = Float64[params[k] for k in rs]
         d = Float64[params[k] for k in ds]
         i = Float64[params[k] for k in is]
-        @show r, rs
-        @show d, ds
-        @show i, is
-        @show species, reaction_rates
         
         u0 = fu0(i)
         plan! * u0
@@ -76,7 +72,6 @@ function reaction_operator(species, reaction_rates, rs, plan!)
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
     du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for (v,X) in zip(eachrow(u), range(0,1,n)), expr in reaction_rates]
-    @show size
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     _, f! = build_function(du, u, rs; expression=Val{false})
     _, _fjac! = build_function(jac, vec(u), rs; expression=Val{false})

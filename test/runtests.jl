@@ -49,8 +49,6 @@ end
     params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0, U0=1.0,V0=1.0, r=0.1)
     expected_periods = 1/turing_wavelength(model,params)
     u,t = simulate(model, params; full_solution=true)
-    @show size(u)
     x = range(0,1,size(u,1))
-    @show u[:,1,1] - (1.0.+exp.(x))
     @test u[:,1,1] ≈ 1.0.+exp.(x) rtol=1e-4
 end
