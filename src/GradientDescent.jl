@@ -5,7 +5,8 @@ using ..Util: defspecies, defparams, zip_dict, unzip_dict, tmap
 using ..Models: pseudospectral_problem
 using ..Simulate
 using Symbolics, Catalyst
-using FiniteDiff
+# using FiniteDiff
+using Enzyme: jacobian, Reverse
 using LinearAlgebra
 using StatsBase: sample, Weights
 using Pipe: @pipe
@@ -34,7 +35,7 @@ function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=1000)
     path=[p]
     for i in 1:maxsteps
         print("$(i), ")
-        J = vec(FiniteDiff.finite_difference_jacobian(cost, p))
+        J = vec(jacobian(Reverse, Const(cost), p))
         @show J
         norm(J) < ϵ && return path
         if !all(isfinite.(J))
