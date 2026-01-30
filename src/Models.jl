@@ -27,6 +27,8 @@ An object containing a mathematical description of a reaction diffusion system t
 # Fields
 - `reaction::ReactionSystem`
 - `diffusion::DiffusionSystem`
+- `initial_conditions::SpeciesValues`
+
 """
 struct Model
     reaction
@@ -98,7 +100,7 @@ end
 
 
 """
-    @diffusion_system L begin D, [(a,b)], species;... end
+    @diffusion_system L begin D, species;... end
 
 Define a spatial domain of length `L` and a set of diffusion rates and Neumann boundary conditions for the given species.
 The boundary conditions `uₓ(0)=a` and `uₓ(L)=b` default to 0 if ommitted.
@@ -141,6 +143,20 @@ end
 parameters(ds::DiffusionSystem) = union(get_variables(ds.domain_size), parameters(ds.rates))
 parameters(v::SpeciesValues) = @pipe v |> values .|> get_variables |> union(_...,[]) |> Num.(_)
 
+
+"""
+    @initial_conditions begin IC, species;... end
+
+Define a set of initial conditions for the given species. IC may depend on arbitrary parameters and additionally the spatial variable `x`.
+
+# Example
+```
+@inital_conditions begin
+    U0,             U
+    V0 + exp(x),    V
+end
+```
+"""
 macro initial_conditions(body)
     species,parameters,pairs = parse_body(body, __source__)
     icexpr = dict_expr(pairs)
@@ -186,10 +202,10 @@ dict_expr(pairs) = :(Dict($([:($k => $v) for (k,v) in pairs]...)))
 ParameterSet = Dict{Num, Float64}
 
 """
-    function parameter_set(model, params; σ=0.001)
+    function parameter_set(model, params)
 
 Create a set of parameter values and initial conditions for `model`.
-Defaults are used for values missing from `params` and noise with standard deviation `σ` is added to the intial conditions. 
+Defaults are used for values missing from `params`.
 """
 function parameter_set(model, params; σ=0.001)
     set = ParameterSet()
