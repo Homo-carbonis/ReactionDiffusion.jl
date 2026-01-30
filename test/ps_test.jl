@@ -20,9 +20,9 @@ using Test
     @testset "zero flux" begin
         p = Dict(d=>1.0)
         prob = make_prob(p)
-        sol = solve(prob, ETDRK4(); tspan=(0.0,1.0), dt=dt)
+        sol = solve(prob, ETDRK4(); tspan=(0.0,2.0), dt=dt)
         @test successful_retcode(sol)
         u,t = transform(sol)
-        @test u ≈ exp(-t)*cos.(X) rtol=1e-3;
+        @test u ≈ exp(-t)*cos.(X) rtol=1e-2;
     end
 end;

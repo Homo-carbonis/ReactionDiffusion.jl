@@ -10,7 +10,7 @@ x = only(@variables(x))
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, initial_conditions, num_verts; kwargs...)
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, initial_conditions, num_verts; noise=1e-4, kwargs...)
     # Collect parameter symbols. 
     rs,ds,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, initial_conditions))
 
@@ -26,13 +26,18 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, initia
     prob = SplitODEProblem(D, R, vec(u), Inf, nothing; kwargs...)
 
     u0 = [substitute(ic, x=>X) for X in range(0,1,n), ic in initial_conditions]
-    fu0,_= build_function(u0, is; expression=Val{false})
+    _fu0,_= build_function(u0, is; expression=Val{false})
+    fu0(i) = _fu0(i) + noise*abs.(randn(n,m))
 
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = Float64[params[k] for k in rs]
         d = Float64[params[k] for k in ds]
         i = Float64[params[k] for k in is]
+        @show r, rs
+        @show d, ds
+        @show i, is
+        @show species, reaction_rates
         
         u0 = fu0(i)
         plan! * u0
@@ -70,7 +75,8 @@ function reaction_operator(species, reaction_rates, rs, plan!)
     @variables u[1:n, 1:m]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for expr in reaction_rates, (v,X) in zip(eachrow(u), range(0,1,n))]
+    du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for (v,X) in zip(eachrow(u), range(0,1,n)), expr in reaction_rates]
+    @show size
     jac = sparsejacobian(vec(du),vec(u); simplify=true)
     _, f! = build_function(du, u, rs; expression=Val{false})
     _, _fjac! = build_function(jac, vec(u), rs; expression=Val{false})
@@ -78,7 +84,7 @@ function reaction_operator(species, reaction_rates, rs, plan!)
         du=reshape(du,n,m)
         p.u .= reshape(u,n,m)
         plan! * p.u
-        f!(du, u, p.r)
+        f!(du, p.u, p.r)
         plan! * du
         nothing
     end

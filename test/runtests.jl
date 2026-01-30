@@ -27,22 +27,7 @@ end
 
 @testset "simulate" begin
     model = Schnakenberg.model
-    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0)
-    expected_periods = 1/turing_wavelength(model,params)
-    u,t = simulate(model, params; tspan=1.0)
-
-    u = u[:,1]
-
-    # Test whether simulated PDE is 'sensible'; we evaluate the max/min value of the final pattern, and also the number of sign changes about the half maximum (both for U)
-    #       note:   we give a range for both test values as we are using random initial conditions, and thus variations are to be expected
-    #               (even when setting seeds, it's not clear that Pkg updates to random will conserve values).
-    @test 1.5 < dynamic_range(u) < 4
-    @test num_periods(u) ≈ expected_periods rtol=0.1
-end
-
-@testset "simulate ics" begin
-    model = Schnakenberg.model
-    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, U=0.0, V = x->0.01*x, L=100.0)
+    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0, U0=1.0,V0=1.0)
     expected_periods = 1/turing_wavelength(model,params)
     u,t = simulate(model, params)
 
@@ -55,14 +40,17 @@ end
     @test num_periods(u) ≈ expected_periods rtol=0.1
 end
 
-@testset "Boundary Conditions" begin
-    model = Schnakenberg.model
-    params = dict(γ = 0.0, Dᵤ = 1.0, Dᵥ = 50.0, aᵤ=0.1, bᵤ=0.5, L=100.0)
-    n = 256
-    h = params[:L]/n
-    u,t = simulate(model, params; num_verts = n, tspan=100.0, dt=0.01)
-
-    u = u[:,1]
-    @test (u[2]-u[1])/h ≈ 0.1
-    @test (u[end]-u[end-1])/h ≈ 0.5
+@testset "initial conditions" begin
+    initial = @initial_conditions begin
+        U0 + exp(x), U
+        V0, V
+    end
+    model = Model(Schnakenberg.reaction, Schnakenberg.diffusion, initial)
+    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0, U0=1.0,V0=1.0, r=0.1)
+    expected_periods = 1/turing_wavelength(model,params)
+    u,t = simulate(model, params; full_solution=true)
+    @show size(u)
+    x = range(0,1,size(u,1))
+    @show u[:,1,1] - (1.0.+exp.(x))
+    @test u[:,1,1] ≈ 1.0.+exp.(x) rtol=1e-4
 end

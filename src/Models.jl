@@ -3,7 +3,7 @@ export Model, species, parameters, reaction_parameters, boundary_parameters, dif
     num_species, num_params, num_reaction_params, num_diffusion_params,
     domain_size, initial_conditions, noise,
     reaction_rates, diffusion_rates,
-    @diffusion_system,
+    @diffusion_system, @initial_conditions,
     parameter_set, ParameterSet
 
 import ..PseudoSpectral: pseudospectral_problem
@@ -17,6 +17,7 @@ using Symbolics: Num, value, get_variables
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
 using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, @reaction_network, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata
 using ..Util: subst, ensure_function
+using Pipe
 # TODO CHECK for unnecessary Num conversions! Alternatively add needed Num conversions (and remove from Turing.jl)
 """
     Model(reaction, diffusion)
@@ -30,8 +31,10 @@ An object containing a mathematical description of a reaction diffusion system t
 struct Model
     reaction
     diffusion
-    inital_conditions
+    initial_conditions
 end
+
+Model(reaction, diffusion) = Model(reaction,diffusion, SpeciesValues())
 
 
 # Don't try to broadcast over a model.
@@ -43,13 +46,13 @@ species(model::Model) = Catalyst.species(model.reaction)
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model))
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = union(get_variables(model.diffusion.domain_size), parameters.(model.diffusion.spatial_reactions)...)
-
+diffusion_parameters(model::Model) = parameters(model.diffusion)
+initial_condition_parameters(model::Model) = parameters(model.initial_conditions)
 reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 
 diffusion_rates(model::Model, default=0.0) = [get(model.diffusion.rates, s, default) for s in species(model)]
 
-inital_conditions(model::Model, default=0.0) = [get(model.initial_conditions, s, default) for s in species(model)]
+initial_conditions(model::Model, default=0.0) = [get(model.initial_conditions, s, default) for s in species(model)]
 
 
 
@@ -86,10 +89,11 @@ end
 
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
+SpeciesValues = Dict{Num,Num}
 
 struct DiffusionSystem
-    domain_size
-    rates
+    domain_size::Num
+    rates::SpeciesValues
 end
 
 
@@ -118,31 +122,40 @@ end
 
 function diffusion_system(L, body, source)
     species,parameters,pairs = parse_body(body, source)
+    rexpr = dict_expr(pairs)
     L = parse_expr!(parameters, L)
     forbidden_symbol_check(parameters)
     psexpr = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    iv = :($(DEFAULT_IV_SYM) = default_t()) # t
     sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
-    dsexpr = :(DiffusionSystem($L, Dict($pairs)))
+    dsexpr = :(DiffusionSystem($L, $rexpr))
+    @show dsexpr
     quote
         $psexpr
+        $iv
         $sexpr
         $dsexpr
     end
 end
 
+parameters(ds::DiffusionSystem) = union(get_variables(ds.domain_size), parameters(ds.rates))
+parameters(v::SpeciesValues) = @pipe v |> values .|> get_variables |> union(_...,[]) |> Num.(_)
+
 macro initial_conditions(body)
-    species,parameters,pairs = parse_body(body, source)
+    species,parameters,pairs = parse_body(body, __source__)
+    icexpr = dict_expr(pairs)
     psexpr = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
+    iv = :($(DEFAULT_IV_SYM) = default_t()) # t
     sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
-    icexpr = :(Dict($pairs))
     quote
         $psexpr
+        $iv
         $sexpr
         $icexpr
     end
 end
 
-function parse_body!(species,parameters, body, source)
+function parse_body(body, source)
     Base.remove_linenums!(body)
     parameters = ExprValues[]
     species = ExprValues[]
@@ -168,6 +181,7 @@ function parse_expr!(parameters, x)
     x
 end
 
+dict_expr(pairs) = :(Dict($([:($k => $v) for (k,v) in pairs]...)))
 
 ParameterSet = Dict{Num, Float64}
 
@@ -187,11 +201,12 @@ function parameter_set(model, params; σ=0.001)
     for ds in diffusion_parameters(model)
         set[ds] = get(params, nameof(ds), 0.0)
     end
+
     
-    for ds in boundary_parameters(model)
-        set[ds] = get(params, nameof(ds), 0.0)
+    for is in initial_condition_parameters(model)
+        set[is] = get(params, nameof(is), 0.0)
     end
-    
+
     # Domain size
     if !is_fixed_size(model)
         L = domain_size(model)

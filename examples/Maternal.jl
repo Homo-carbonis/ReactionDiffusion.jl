@@ -2,10 +2,13 @@
 using ReactionDiffusion, WGLMakie
 WGLMakie.activate!(resize_to=:body) # Make plots fill the available space.
 
+anterior = <(1/12)
+posterior = >(11/12)
+
 ## Define a reaction network.
 reaction = @reaction_network begin
-    anterior * μ_bcd,           ∅ --> BCD # Bicoid expression in anterior region
-    posterior * μ_nos,          ∅ --> NOS  # Nanos expression in posterior region
+    anterior(x) * μ_bcd,           ∅ --> BCD # Bicoid expression in anterior region
+    posterior(x) * μ_nos,          ∅ --> NOS  # Nanos expression in posterior region
     δ_bcd,                      BCD --> ∅   # Bicod degredation
     δ_nos,                      NOS --> ∅ # Nanos degredation
     hillar(BCD, NOS, μ_hb,K,n), ∅ --> HB  # Hunchback expression. Hill function with BCD activating and NOS inhibiting.
@@ -25,9 +28,6 @@ model = Model(reaction, diffusion)
 ## Pick some parameter sets to test.
 params = dict(
     L = 2.0,
-    # `anterior` and `posterior` are defined as step functions in space. 
-    anterior = <(1/12),   # 1 in the anterior 12th of the domain, 0 elsewhere.
-    posterior = >(11/12), # 1 in the posterior 12th of the domain, 0 elsewhere.
     μ_bcd = 1.0,
     μ_nos = 1.0,
     δ_bcd = 1.0,
@@ -47,8 +47,6 @@ timeseries_plot(model, params; abstol=1e-3)
 ## Define some plausible ranges of parameter values to explore.
 param_ranges = dict(
     L = range(1.0, 50.0, 50),
-    anterior = [x -> (x < 1/12) ? 1 : 0],
-    posterior = [x -> (x > 11/12) ? 1 : 0],
     μ_bcd = range(0.1, 2.0, 50),
     μ_nos = range(0.1, 2.0, 50),
     δ_bcd = range(0.1, 2.0, 50),

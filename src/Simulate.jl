@@ -10,7 +10,7 @@ using ProgressMeter: Progress, BarGlyphs, next!
 
 using Symbolics:Num #temp
 """
-    simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
+    simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-4, kwargs...)
 
 
 Simulate `model` for the parameters and initial conditions given in `params`, stopping when a steady state is reached. Returns `(u,t)` with the solution values and time.
@@ -28,11 +28,11 @@ For other keyword arguments see https://docs.sciml.ai/DiffEqDocs/stable/basics/c
 simulate(model, params; kwargs...) = simulate(model; kwargs...)(params)
 
 """
-    function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
+    function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-4, kwargs...)
 
 Partially applied version of `simulate` to avoid repeating expensive setup when simulating the same model reapeatedly.
 """
-function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, reltol=1e-4, abstol=1e-4, kwargs...)
+function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-5, kwargs...)
     make_prob, transform = pseudospectral_problem(model, num_verts)
 
     f(params) = f([params]) |> only # Accept a single parameter set instead of a vector.
@@ -58,13 +58,13 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
         end
 
         ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
-        solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(reltol,abstol), kwargs...)
+        solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(tol), kwargs...)
     end
 end
 
 
-function steady_state_callback(reltol=1e-4,abstol=1e-4)
-    condition(u,t,integrator) = isapprox(get_du(integrator), zero(u); rtol=reltol, atol=abstol)
+function steady_state_callback(tol=1e-4)
+    condition(u,t,integrator) = isapprox(get_du(integrator), zero(u); atol=tol)
     DiscreteCallback(condition, terminate!)
 end
 

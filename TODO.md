@@ -13,3 +13,4 @@
 - Make x a parameter instead of paramters being functions.
 - Combine time series and interactive plots.
 - Add output expressions combining species.
+- Add per species noise level to @initial_conditions
