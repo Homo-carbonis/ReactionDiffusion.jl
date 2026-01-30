@@ -10,7 +10,7 @@
 - Add x scale to plot
 - Use LaTeX to label plots.
 - Normalise by range instead of norm
-- Make x a parameter instead of paramters being functions.
 - Combine time series and interactive plots.
 - Add output expressions combining species.
 - Add per species noise level to @initial_conditions
+- Add x variable to tutorial.

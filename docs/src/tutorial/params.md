@@ -38,9 +38,3 @@ params = [params1 ; params2]
 Here, the function `range(min, max, n)` returns a sequence of `n` parameters that linearly spaced between the `min` and `max` limits. The function `logrange ` may be used to sample in log-space instead. 
 
 The `product` function generates a cartesian product over the values given for each parameter.
-
-Spatially heteregeneous values for reaction parameters or initial conditions can be expressed as functions on the interval [0.0, 1.0]. Here the initial concentration of GDF5 is an exponential gradient.
-```julia 
-GDF5 = x -> exp(-0.2x)
-```
-
