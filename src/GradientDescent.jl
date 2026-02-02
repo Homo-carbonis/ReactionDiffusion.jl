@@ -54,8 +54,6 @@ function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=1000)
     path
 end
 
-
-
 function plot_cost(model, cost, vars, params; in_domain=x->true, sample=nothing, kwargs...)
     _simulate = simulate(model; kwargs...)
     

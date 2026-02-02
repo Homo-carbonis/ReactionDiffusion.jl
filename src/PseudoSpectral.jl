@@ -10,33 +10,50 @@ x = only(@variables(x))
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
-function pseudospectral_problem(species, reaction_rates, diffusion_rates, initial_conditions, num_verts; noise=1e-4, kwargs...)
-    # Collect parameter symbols. 
-    rs,ds,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, initial_conditions))
-
+function pseudospectral_problem(species, reaction_rates, diffusion_rates, initial_conditions, boundary_conditions, num_verts; noise=1e-4, kwargs...)
     n = num_verts
     m = length(species)
     
+    # Collect parameter symbols. 
+    rs,ds,bs,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, boundary_conditions, initial_conditions))
+
     u = Matrix{Float64}(undef, n, m)
     plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u, REDFT00, 1; flags=MEASURE)
 
-    R = reaction_operator(species, reaction_rates, rs, plan!)
-    D = diffusion_operator(diffusion_rates, ds, n)
 
+
+    ## Offsets for constant, non-zero flux boundary conditions.
+    # For u′(0) = a, u′(1) = b,
+    # define ϕ as a smooth function so that ϕ′(0) = a, ϕ′(1) = b, and write v = u - ϕ.
+    # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
+    a,b = transpose.(boundary_conditions)
+    x = range(0.0,1.0,n)
+    ϕ = x.^2 * (b-a)/2 - x * a
+    # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
+    Φ = [-2*(n-1)/sqrt(2*(n-1))*(b-a) ; zeros(n-1,m)]
+    fϕ,_ = build_function(ϕ, bs; expression=Val{false})
+
+    
+    R = reaction_operator(species, reaction_rates, rs, bs, ϕ, Φ, plan!)
+    D = diffusion_operator(diffusion_rates, ds, n)
     prob = SplitODEProblem(D, R, vec(u), Inf, nothing; kwargs...)
 
     u0 = [substitute(ic, x=>X) for X in range(0,1,n), ic in initial_conditions]
     _fu0,_= build_function(u0, is; expression=Val{false})
     fu0(i) = _fu0(i) + noise*abs.(randn(n,m))
 
+
     # Function to set parameter values.
     function make_problem(params, state=nothing; kwargs...)
         r = Float64[params[k] for k in rs]
         d = Float64[params[k] for k in ds]
+        b = Float64[params[k] for k in bs]
         i = Float64[params[k] for k in is]
-        
+
         u0 = fu0(i)
+        u0 .-= fϕ(b)
         plan! * u0
+
         u0 = vec(u0)
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
         p = Parameters(w,r,d,state)
@@ -48,9 +65,11 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, initia
     # Function to transform output back to spatial domain.
     # TODO: Avoid unnecessary allocation.
     function transform(sol; full_solution=false)
+        ϕ = fϕ(sol.p.b)
         function f(u)
             u = reshape(u,n,m)
             plan! * u
+            u .+= 
         end
         if full_solution
             u = stack(f.(sol.u))
@@ -66,21 +85,22 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, initia
 end
 
 "Build function for the reaction component, with `f(v+ϕ) + Φ` offset for non-zero-flux BCs."
-function reaction_operator(species, reaction_rates, rs, plan!)
+function reaction_operator(species, reaction_rates, rs, bs, ϕ, Φ,  plan!)
     (n,m) = size(plan!)
     @variables u[1:n, 1:m]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
-    du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for (v,X) in zip(eachrow(u), range(0,1,n)), expr in reaction_rates]
-    jac = sparsejacobian(vec(du),vec(u); simplify=true)
-    _, f! = build_function(du, u, rs; expression=Val{false})
-    _, _fjac! = build_function(jac, vec(u), rs; expression=Val{false})
+    du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for (v,X) in zip(eachrow(u+ϕ), range(0,1,n)), expr in reaction_rates]
+    _, f! = build_function(du, u, rs, bs; expression=Val{false})
+    _, Φ! = build_function(Φ, bs; expression=Val{false})
     function f̂!(du,u,p,t)
         du=reshape(du,n,m)
         p.u .= reshape(u,n,m)
         plan! * p.u
-        f!(du, p.u, p.r)
+        f!(du, p.u, p.r, p.b)
         plan! * du
+        Φ!(p.u, p.b)
+        du .+= p.u
         nothing
     end
     fjac!(j,u,p,t) = _fjac!(j, u, p.r)
@@ -107,6 +127,7 @@ struct Parameters
     u # Working array for dct.
     r # Reaction parameter matrix.
     d # Diffusion parameter vector.
+    b # Boundary parameter vector.
     state # Only used for metadata.
 end
 
