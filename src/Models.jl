@@ -38,6 +38,9 @@ struct Model
     initial_conditions
 end
 
+SpeciesValues = Dict{Num,Num}
+
+
 Model(reaction, diffusion) = Model(reaction,diffusion, (@reaction_network, @reaction_network), SpeciesValues())
 Model(reaction, diffusion, initial::SpeciesValues) = Model(reaction,diffusion, (@reaction_network, @reaction_network), initial)
 Model(reaction, diffusion, boundary::Tuple{ReactionSystem,ReactionSystem}) = Model(reaction,diffusion, boundary, SpeciesValues())
@@ -99,7 +102,6 @@ end
 
 ODESystem(model::Model) = convert(ODESystem, model.reaction)
 
-SpeciesValues = Dict{Num,Num}
 
 struct DiffusionSystem
     domain_size::Num
