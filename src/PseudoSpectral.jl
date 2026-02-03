@@ -14,7 +14,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     n = num_verts
     m = length(species)
     
-    @show boundary_conditions
     # Collect parameter symbols. 
     rs,ds,bs,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, vec(boundary_conditions), initial_conditions))
 
@@ -30,8 +29,6 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     a,b = eachrow(boundary_conditions)'
     X = range(0.0,1.0,n)
     ϕ = X.^2 * (b-a)/2 + X * a
-    @show bs
-    @show ϕ[2]
     # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
     Φ = [-2*(n-1)/sqrt(2*(n-1))*(b-a) ; zeros(n-1,m)]
     fϕ,_ = build_function(ϕ, bs; expression=Val{false})
