@@ -47,8 +47,24 @@ end
     end
     model = Model(Schnakenberg.reaction, Schnakenberg.diffusion, initial)
     params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=100.0, U0=1.0,V0=1.0, r=0.1)
-    expected_periods = 1/turing_wavelength(model,params)
     u,t = simulate(model, params; full_solution=true)
     x = range(0,1,size(u,1))
     @test u[:,1,1] ≈ 1.0.+exp.(x) rtol=1e-4
+end
+
+@testset "boundary conditions" begin
+    b0 = @reaction_network begin g0, ∅ --> U end
+    b1 = @reaction_network begin g1, ∅ --> U end 
+    initial = @initial_conditions begin
+        x^2 * (g1-g0)/2 + x * g0, U
+        0, V
+    end
+    model = Model(Schnakenberg.reaction, Schnakenberg.diffusion, (b0,b1), initial)
+    L = 100.0
+    n= 1028
+    params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=L, r=0.1, g0=0.1, g1=0.2)
+    u,t = simulate(model, params; tspan=5.0, num_verts=n)
+    h = L/n
+    @test (u[2,1] - u[1,1])/h  ≈ 0.1 rtol=0.1
+    @test (u[end,1] - u[end-1,1])/h ≈ 0.2  rtol=0.1
 end
