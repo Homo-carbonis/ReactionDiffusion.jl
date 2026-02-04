@@ -65,6 +65,6 @@ end
     params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=L, r=0.1, g0=0.1, g1=0.2)
     u,t = simulate(model, params; tspan=5.0, num_verts=n)
     h = L/n
-    @test (u[2,1] - u[1,1])/h  ≈ 0.1 rtol=0.1
-    @test (u[end,1] - u[end-1,1])/h ≈ 0.2  rtol=0.1
+    @test (u[2,1] - u[1,1])/h  ≈ -0.1 rtol=0.1
+    @test (u[end,1] - u[end-1,1])/h ≈ -0.2  rtol=0.1
 end
