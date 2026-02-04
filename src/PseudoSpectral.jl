@@ -18,10 +18,10 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Collect parameter symbols. 
     rs,ds,bs,is = (setdiff(collect_variables(exprs), x, species) for exprs in (reaction_rates, diffusion_rates, vec(boundary_conditions), initial_conditions))
 
-    u = Matrix{Float64}(undef, n, m)
-    u2 = Matrix{Float64}(undef, N, m)
+    u = Matrix{Float64}(undef, N, m)
+    u2 = Matrix{Float64}(undef, n, m)
 
-    plan! = 1/sqrt(2*(n-1)) * plan_r2r!(u, REDFT00, 1; flags=MEASURE)
+    plan! = 1/sqrt(2*(N-1)) * plan_r2r!(u, REDFT00, 1; flags=MEASURE)
     plan2! = 1/sqrt(2*(n-1)) * plan_r2r!(u2, REDFT00, 1; flags=MEASURE)
 
 
@@ -32,26 +32,26 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Then v′(0) = 0, v′(1) = 0, so we can solve for v using DCT-I.
     a,b = eachrow(boundary_conditions)'
     X = range(0.0,1.0,N)
-    X1 = range(0.0,1.0,n)
+    X2 = range(0.0,1.0,n)
 
     ϕ = X.^2 * (b-a)/2 + X * a
-    ϕ1 = X1.^2 * (b-a)/2 + X1 * a
+    ϕ2 = X2.^2 * (b-a)/2 + X2 * a
 
     # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
     Φ = [-2*(N-1)/sqrt(2*(N-1))*(b-a) ; zeros(N-1,m)]
     fϕ,_ = build_function(ϕ, bs; expression=Val{false})
-    fϕ1,_ = build_function(ϕ1, bs; expression=Val{false})
+    fϕ2,_ = build_function(ϕ2, bs; expression=Val{false})
 
     fΦ,_ = build_function(Φ, bs; expression=Val{false})
 
     
-    R = reaction_operator(species, reaction_rates, rs, plan2!, n)
+    R = reaction_operator(species, reaction_rates, rs, plan!, n)
     D = diffusion_operator(diffusion_rates, ds, n)
-    prob = SplitODEProblem(D, R, vec(u), Inf, nothing; kwargs...)
+    prob = SplitODEProblem(D, R, vec(u2), Inf, nothing; kwargs...)
 
-    u0 = [substitute(ic, x=>X) for X in range(0,1,n), ic in initial_conditions]
+    u0 = [substitute(ic, x=>X) for X in X, ic in initial_conditions]
     _fu0,_= build_function(u0, is; expression=Val{false})
-    fu0(i) = _fu0(i) + noise*abs.(randn(n,m))
+    fu0(i) = _fu0(i) + noise*abs.(randn(N,m))
 
 
     # Function to set parameter values.
@@ -63,13 +63,13 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         ϕ = fϕ(b)
         Φ = fΦ(b)
         
-        u0 = fu0(i) - fϕ1(b)
+        u0 = fu0(i) - ϕ
         plan! * u0
-        u0 = vec(u0)
+        u0 = vec(u0[1:n,:])
         w = Matrix{Float64}(undef,N,m) # Allocate working memory for FFTW.
         dw = Matrix{Float64}(undef,N,m) # Allocate working memory for FFTW.
 
-        p = Parameters(w,dw,r,d,ϕ,Φ,state)
+        p = Parameters(w,dw,r,d,b,ϕ,Φ,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
@@ -78,11 +78,12 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     # Function to transform output back to spatial domain.
     # TODO: Avoid unnecessary allocation.
     function transform(sol; full_solution=false)
-        ϕ = fϕ1(sol.prob.p.b) # no!
+        ϕ = fϕ2(sol.prob.p.b)
         function f(u)
-            u = reshape(u,n,m)
-            plan! * u
+            u= reshape(u,n,m)
+            plan2! * u
             u .+= ϕ
+            u
         end
         if full_solution
             u = stack(f.(sol.u))
@@ -142,14 +143,11 @@ struct Parameters
     du
     r # Reaction parameter matrix.
     d # Diffusion parameter vector.
+    b
     ϕ
     Φ
     state # Only used for metadata.
 end
 
-function zeropad(A,N)
-    n,m=size(A)
-    vcat(A, zeros(N-n,m))
-end
 end
 
