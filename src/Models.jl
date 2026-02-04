@@ -95,7 +95,7 @@ function pseudospectral_problem(model, num_verts; kwargs...)
     S = species(model)
     R = reaction_rates(model)
     D = diffusion_rates(model)/L^2
-    B = -L * boundary_conditions(model) ./ D'
+    B = -L * boundary_conditions(model) ./ diffusion_rates(model)'
     I = initial_conditions(model)
     pseudospectral_problem(S, R, D, B, I, num_verts; kwargs...)
 end
