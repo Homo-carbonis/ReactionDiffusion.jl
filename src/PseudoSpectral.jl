@@ -98,6 +98,7 @@ function reaction_operator(species, reaction_rates, rs, plan!)
         p.u .= reshape(u,n,m)
         plan! * p.u
         p.u .+= p.ϕ
+        p.u .= max.(p.u,1e-12)
         f!(du, p.u, p.r)
         plan! * du
         du .+= p.Φ
