@@ -112,6 +112,7 @@ function reaction_operator(species, reaction_rates, rs, plan!,n)
         p.u[n+1:end,:] .= 0.0
         plan! * p.u
         p.u .+= p.ϕ
+        p.u .= max.(p.u,1e-12)
         f!(p.du, p.u, p.r)
         plan! * p.du
         p.du .+= p.Φ

@@ -30,5 +30,5 @@ model = Model(reaction, diffusion, boundary, initial)
 
 params_c = dict(L=100.0, Dₘ=10.0, Dₑ=0.1, αₘ¹ = 1e-5, αₘ² = 1.0, αₑ = 1e-4, ηₘ = 0.0001, βₑ = 1e-3, T=1e-3)
 
-timeseries_plot(model,params_c; dt=0.01, tspan=99.0, noise=1e-10, num_verts=512, maxrepeats=0, normalise=false, autolimits=false)
+timeseries_plot(model,params_c; dt=0.1, noise=1e-10, num_verts=256, maxrepeats=0)
 

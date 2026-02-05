@@ -15,3 +15,4 @@
 - Add per species noise level to @initial_conditions
 - Add x variable to tutorial.
 - Move noise level definition to IC macro.
+- Add switch for oversampling.
