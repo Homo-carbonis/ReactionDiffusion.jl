@@ -55,8 +55,8 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         
         u0 = fu0(i) - ϕ
         plan! * u0
-
         u0 = vec(u0)
+        @show u0
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
         p = Parameters(w,r,d,ϕ,Φ,state)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.

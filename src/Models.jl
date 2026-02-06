@@ -216,7 +216,7 @@ ParameterSet = Dict{Num, Float64}
 Create a set of parameter values and initial conditions for `model`.
 Defaults are used for values missing from `params`.
 """
-function parameter_set(model, params; σ=0.001)
+function parameter_set(model, params)
     set = ParameterSet()
     
     for rs in reaction_parameters(model)
