@@ -43,12 +43,12 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
         progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
         function _output_func(sol,i)
-            repeat = sol.prob.p.state
-            successful_retcode(sol) || return (missing, repeat <= maxrepeats) # Rerun if solution failed.
-            next!(progress) # Advance progress bar.
+            repeat = sol.prob.p.repeat
             u,t = transform(sol; full_solution=full_solution)
             out = isnothing(output_func) ? (u,t) : output_func(u,t)
-            (out, false)
+            do_repeat = !successful_retcode(sol) && repeat <= maxrepeats
+            next!(progress) # Advance progress bar.
+            (out, do_repeat)
         end
             
         function prob_func(prob, i, repeat)
