@@ -13,9 +13,9 @@ using Observables
 
 Simulate and plot the results. The remaining `kwargs` are passed to `simulate`.
 """
-function timeseries_plot(model, params; normalise=true, hide_y=true, autolimits=true, kwargs...)
+function timeseries_plot(model, params; normalise=true, hide_y=true, autolimits=true, species=nothing, kwargs...)
     u,t=simulate(model,params; full_solution=true, kwargs...)
-    timeseries_plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits)
+    timeseries_plot(model, u,t; normalise=normalise, hide_y=hide_y, autolimits=autolimits, species=species)
 end
 
 
@@ -26,8 +26,17 @@ Display a solution in an interactive plot with a scrubber to move through time.
 
 If `normalise` is true, values for different species will be normalised to a common scale.
 """
-function timeseries_plot(model, u, t; normalise=true, hide_y=true, autolimits=true, kwargs...)
-    labels = [string(s.f) for s in species(model)]
+function timeseries_plot(model, u, t; normalise=true, hide_y=true, autolimits=true, species=nothing, kwargs...)
+    model_species = Models.species(model)
+    if isnothing(species)
+        labels = [string(s.f) for s in model_species]
+    else
+        plot_species = Set(species)
+        ix = [i for (i,s) in enumerate(model_species) if s ∈ plot_species]
+        u = u[:,ix,:]
+        labels = [string(s.f) for s in model_species[ix]]
+    end
+
     x_steps = size(u, 1)
     x = range(0.0,1.0,length=x_steps)
 	r = normalise ? norm.(eachslice(u, dims=(2,3))) : ones(size(u)[2:3])

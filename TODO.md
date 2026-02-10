@@ -15,3 +15,5 @@
 - Add per species noise level to @initial_conditions
 - Add x variable to tutorial.
 - Move noise level to @initial_conditions.
+- Make parameter set vectors and parameter ranges for interactive plotting the same objects (somehow).
+- stop plots resizing as limits change.

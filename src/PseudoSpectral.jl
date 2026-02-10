@@ -11,6 +11,7 @@ const x = only(@variables(x))
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, initial_conditions, num_verts; noise=1e-4, kwargs...)
+    @show reaction_rates, diffusion_rates, boundary_conditions, initial_conditions
     n = num_verts
     m = length(species)
     
@@ -45,7 +46,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 
 
     # Function to set parameter values.
-    function make_problem(params, repeat=0; kwargs...)
+    function make_problem(params, attempt=1; kwargs...)
         r = Float64[params[k] for k in rs]
         d = Float64[params[k] for k in ds]
         b = Float64[params[k] for k in bs]
@@ -56,7 +57,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
         plan! * u0
         u0 = vec(u0)
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
-        p = Parameters(w,r,d,ϕ,Φ,repeat)
+        p = Parameters(w,r,d,ϕ,Φ,attempt)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
@@ -96,7 +97,7 @@ function reaction_operator(species, reaction_rates, rs, plan!)
         copyto!(p.u, u)
         plan! * p.u
         p.u .+= p.ϕ
-        p.u .= max.(p.u,1e-12)
+        p.u .= max.(p.u,0.0)
         f!(du, p.u, p.r)
         plan! * du
         du .+= p.Φ
@@ -127,7 +128,7 @@ struct Parameters
     d :: Vector{Float64} # Diffusion parameters.
     ϕ :: Matrix{Float64} # Boundary lifting function
     Φ :: Matrix{Float64} # DCT{Δϕ}
-    repeat :: Int64 # Track number of attempts at solution.
+    attempt :: Int64 # Track number of attempts at solution.
 end
 
 end

@@ -10,7 +10,7 @@ using ProgressMeter: Progress, BarGlyphs, next!
 
 using Symbolics:Num #temp
 """
-    simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-4, kwargs...)
+    simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, max_attempts = 4, tol=1e-4, kwargs...)
 
 
 Simulate `model` for the parameters and initial conditions given in `params`, stopping when a steady state is reached. Returns `(u,t)` with the solution values and time.
@@ -21,18 +21,18 @@ Simulate `model` for the parameters and initial conditions given in `params`, st
 - `params`: Either a single parameter set or a vector of parameter sets to be solved as an ensemble. Parameter sets can be created manually with parameter_set or supplied as a dict or collection of pairs in which case defaults will be used for any missed values and low-level noise added to initial conditions. Parameters values may be either single numbers which are replicated homogenously over the domain, or functions mapping the interval [0.0,1.0] to values for the corresponding point in space. 
 - `output_func(u,t)`: Function to transform output values. 
 - `full_solution`: Return a vector of values at each time point if true, instead of just the steady-state solution.
-- `max_repeats`: Number of times to retry with reduced dt before giving up if the solution fails to converge. 
+- `max_attempts`: Number of times to retry with reduced dt before giving up if the solution fails to converge. 
 - `num_verts`: Number of points in spatial discretisation.
 For other keyword arguments see https://docs.sciml.ai/DiffEqDocs/stable/basics/common_solver_opts/.
 """
 simulate(model, params; kwargs...) = simulate(model; kwargs...)(params)
 
 """
-    function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-4, kwargs...)
+    function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, max_attempts = 4, tol=1e-4, kwargs...)
 
 Partially applied version of `simulate` to avoid repeating expensive setup when simulating the same model reapeatedly.
 """
-function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, maxrepeats = 4, tol=1e-5, noise=1e-4, kwargs...)
+function simulate(model; output_func=tuple, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, max_attempts = 4, tol=1e-5, noise=1e-4, kwargs...)
     make_prob, transform = pseudospectral_problem(model, num_verts; noise=noise)
 
     f(params) = f([params]) |> only # Accept a single parameter set instead of a vector.
@@ -43,18 +43,18 @@ function simulate(model; output_func=nothing, full_solution=false, alg=ETDRK4(),
         progress = Progress(length(params); desc="Simulating parameter sets: ", dt=0.1, barglyphs=BarGlyphs("[=> ]"), barlen=50, color=:yellow)
 
         function _output_func(sol,i)
-            repeat = sol.prob.p.repeat
+            attempt = sol.prob.p.attempt
             u,t = transform(sol; full_solution=full_solution)
-            out = isnothing(output_func) ? (u,t) : output_func(u,t)
-            do_repeat = !successful_retcode(sol) && repeat <= maxrepeats
+            out = output_func(u,t)
+            repeat = !successful_retcode(sol) && attempt < max_attempts
             next!(progress) # Advance progress bar.
-            (out, do_repeat)
+            (out, repeat)
         end
             
-        function prob_func(prob, i, repeat)
+        function prob_func(prob, i, attempt)
             p = params[i]
-            dt′ = dt/2^(repeat-1) # halve dt if solve was unsuccessful.
-            prob = make_prob(p, repeat; dt=dt′)
+            dt′ = dt/2^(attempt-1) # halve dt if solve was unsuccessful.
+            prob = make_prob(p, attempt; dt=dt′)
         end
 
         ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
