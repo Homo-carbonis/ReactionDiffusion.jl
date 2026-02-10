@@ -6,7 +6,7 @@ using SciMLBase: SplitODEProblem, DiagonalOperator, ODEFunction, update_coeffici
 using FFTW: plan_r2r!, REDFT00, MEASURE
 using Symbolics: @variables, sparsejacobian, build_function, substitute
 
-x = only(@variables(x))
+const x = only(@variables(x))
 
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
@@ -45,20 +45,18 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
 
 
     # Function to set parameter values.
-    function make_problem(params, state=nothing; kwargs...)
+    function make_problem(params, repeat=0; kwargs...)
         r = Float64[params[k] for k in rs]
         d = Float64[params[k] for k in ds]
         b = Float64[params[k] for k in bs]
         i = Float64[params[k] for k in is]
-        ϕ = fϕ(b)
-        Φ = fΦ(b)
-        
-        u0 = fu0(i) - ϕ
+        local ϕ = fϕ(b)
+        local Φ = fΦ(b)
+        local u0 = fu0(i) - ϕ
         plan! * u0
         u0 = vec(u0)
-        @show u0
         w = Matrix{Float64}(undef,n,m) # Allocate working memory for FFTW.
-        p = Parameters(w,r,d,ϕ,Φ,state)
+        p = Parameters(w,r,d,ϕ,Φ,repeat)
         update_coefficients!(prob.f.f1.f, u0, p, 0.0) # Set parameter values in diffusion operator.
         remake(prob; p=p, u0=u0, kwargs...) # Set parameter values in SplitODEProblem.
     end     
@@ -87,15 +85,15 @@ end
 
 "Build function for the reaction component, with `f(v+ϕ) + Φ` offset for non-zero-flux BCs."
 function reaction_operator(species, reaction_rates, rs, plan!)
-    (n,m) = size(plan!)
+    n,m = size(plan!)
     @variables u[1:n, 1:m]
     # TODO: Clever things to make only spatially varying parameters expand?
     # Build an nxm matrix of derivatives, substituting reactants for u[i,j] and parameters for p[k,l].
     du = [substitute(expr, Dict([x=>X, zip(species,v)...])) for (v,X) in zip(eachrow(u), range(0,1,n)), expr in reaction_rates]
     _, f! = build_function(du, u, rs; expression=Val{false})
     function f̂!(du,u,p,t)
-        du=reshape(du,n,m)
-        p.u .= reshape(u,n,m)
+        du = reshape(du,n,m)
+        copyto!(p.u, u)
         plan! * p.u
         p.u .+= p.ϕ
         p.u .= max.(p.u,1e-12)
@@ -104,8 +102,7 @@ function reaction_operator(species, reaction_rates, rs, plan!)
         du .+= p.Φ
         nothing
     end
-    fjac!(j,u,p,t) = _fjac!(j, u, p.r)
-    ODEFunction(f̂!; jac=fjac!)
+    ODEFunction(f̂!)
 end 
 "Build linear operator for the diffusion component."
 function diffusion_operator(diffusion_rates, ps, n)
@@ -125,12 +122,12 @@ function diffusion_operator(diffusion_rates, ps, n)
 end
 
 struct Parameters
-    u # Working array for dct.
-    r # Reaction parameter matrix.
-    d # Diffusion parameter vector.
-    ϕ
-    Φ
-    state # Only used for metadata.
+    u :: Matrix{Float64} # Working array for dct.
+    r :: Vector{Float64} # Reaction parameters.
+    d :: Vector{Float64} # Diffusion parameters.
+    ϕ :: Matrix{Float64} # Boundary lifting function
+    Φ :: Matrix{Float64} # DCT{Δϕ}
+    repeat :: Int64 # Track number of attempts at solution.
 end
 
 end
