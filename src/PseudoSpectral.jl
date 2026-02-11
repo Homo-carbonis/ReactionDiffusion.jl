@@ -31,7 +31,7 @@ function pseudospectral_problem(species, reaction_rates, diffusion_rates, bounda
     X = range(0.0,1.0,n)
     ϕ = X.^2 * (b-a)/2 + X * a
     # ϕ′′ = b-a, so Φ = DCT{ϕ′′} ∝ [(a-b), 0, 0...] 
-    Φ = [-2*(n-1)/sqrt(2*(n-1))*(b-a) ; zeros(n-1,m)]
+    Φ = [0.0; ones(n-1)] * -2*(n-1)/sqrt(2*(n-1))*(b-a)
     fϕ,_ = build_function(ϕ, bs; expression=Val{false})
     fΦ,_ = build_function(Φ, bs; expression=Val{false})
 

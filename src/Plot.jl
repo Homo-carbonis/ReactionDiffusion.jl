@@ -31,8 +31,7 @@ function timeseries_plot(model, u, t; normalise=true, hide_y=true, autolimits=tr
     if isnothing(species)
         labels = [string(s.f) for s in model_species]
     else
-        plot_species = Set(species)
-        ix = [i for (i,s) in enumerate(model_species) if s ∈ plot_species]
+        ix = [i for (i,s) in enumerate(model_species) if nameof(s.f) ∈ species]
         u = u[:,ix,:]
         labels = [string(s.f) for s in model_species[ix]]
     end
