@@ -32,9 +32,9 @@ const L1 = 100.0
 const tmax = 5e5
 
 # params = dict(L=L1, Dₘ=1e1, Dₑ=1e-1, αₘ¹ = 1e-5, αₘ² = 1e0, αₑ = 1e-4, ηₘ = 1e1, βₑ = 1e-3, T=1e-3, h=4.0)
-params = dict(L=L1, Dₘ=1e1, Dₑ=1e-1, αₘ¹ = 0.0, αₘ² = 0.0, αₑ = 0, ηₘ = 1.0, βₑ = 0, T=1e-3, h=4.0)
+params = dict(L=L1, Dₘ=1e1, Dₑ=1e-1, αₘ¹ = 0.0, αₘ² = 0.0, αₑ = 0, ηₘ = 100.0, βₑ = 0, T=1e-3, h=4.0)
 
-timeseries_plot(model,params; dt=1.0, tspan=1000, noise=1.0, max_attempts=0, num_verts=16, normalise=false, hide_y=false, species=[:M])
+timeseries_plot(model,params; dt=1.0, tspan=1000, noise=1.0, max_attempts=0, num_verts=128, normalise=false, hide_y=false, species=[:M])
 
 
 
@@ -76,7 +76,7 @@ function sample(params)
 end
 
 
-optimise(model,cost,vars,params0; sample=sample, tspan=tmax, dt=1.0, num_verts=16)
+# optimise(model,cost,vars,params0; sample=sample, tspan=tmax, dt=1.0, num_verts=16)
 
 
 

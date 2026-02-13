@@ -1,3 +1,5 @@
+module ReactionDiffusionTest
+
 using ReactionDiffusion
 using Test
 include("../examples/Schnakenberg.jl")
@@ -61,10 +63,52 @@ end
     end
     model = Model(Schnakenberg.reaction, Schnakenberg.diffusion, (b0,b1), initial)
     L = 100.0
-    n= 1028
+    n= 4096
     params = dict(a = 0.2, b = 2.0, γ = 1.0, Dᵤ = 1.0, Dᵥ = 50.0, L=L, r=0.1, g0=0.1, g1=0.2)
     u,t = simulate(model, params; tspan=5.0, num_verts=n)
     h = L/n
     @test (u[2,1] - u[1,1])/h  ≈ -0.1 rtol=0.1
     @test (u[end,1] - u[end-1,1])/h ≈ -0.2  rtol=0.1
 end
+
+end
+
+module PseudoSpectralTest
+include("../src/Util.jl")
+include("../src/PseudoSpectral.jl")
+using .PseudoSpectral
+using Symbolics: @variables
+using OrdinaryDiffEqExponentialRK: ETDRK4
+using SciMLBase: solve, successful_retcode
+using Test
+
+@testset "heat equation" begin
+    @variables U,g0,g1,d,a,b
+    R = [0]
+    D = [1/(pi)^2] # Divide by pi^2 for a domain of size pi.
+    n=128
+    dt=0.001
+    X = range(0,pi,n)
+    @testset "zero flux" begin
+        B = [0,0]
+        IC = [cos(pi*x)]
+        make_prob,transform = pseudospectral_problem([U], R, D, B, IC, n)
+        prob = make_prob(Dict())
+        sol = solve(prob, ETDRK4(); tspan=(0.0,2.0), dt=dt)
+        @test successful_retcode(sol)
+        u,t = transform(sol)
+        @test u ≈ exp(-t)*cos.(X) rtol=1e-2;
+    end
+    @testset "non-zero flux" begin
+        B = [pi,pi]
+        IC = [pi*x]
+        make_prob,transform = pseudospectral_problem([U], R, D, B, IC, n)
+        prob = make_prob(Dict())
+        sol = solve(prob, ETDRK4(); tspan=(0.0,2.0), dt=dt)
+        @test successful_retcode(sol)
+        u,t = transform(sol)
+        @test u ≈ X rtol=1e-2;
+    end
+end
+
+end;

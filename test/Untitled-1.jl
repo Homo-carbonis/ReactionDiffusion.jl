@@ -2,7 +2,7 @@ using FFTW: r2r, REDFT00
 
 Φ1(a,b,n) = [-2*(n-1)/sqrt(2*(n-1))*(b-a) ; zeros(n-1)]
 
-DCT(u,n) = 1/sqrt(2*(n-1)) * r2r(u, FFTW.REDFT00)
+DCT(u,n) = 1/sqrt(2*(n-1)) * r2r(u, REDFT00)
 
 function Φ2(a,b,n)
     u = fill(b-a,n)
@@ -20,5 +20,7 @@ end
 
 
 function Φ4(a,b,n)
-    [0.0; ones(n-1)] * -2*(n-1)/sqrt(2*(n-1))*(b-a)
+    a=a'
+    b=b'
+    [0.0 ; stack(2*(n-1)/sqrt(2*(n-1))*(a*(-1)^i+b*(-1)^(2i)) for i in 2:n; dims=1)]
 end

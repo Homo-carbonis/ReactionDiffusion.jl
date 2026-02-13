@@ -17,3 +17,4 @@
 - Move noise level to @initial_conditions.
 - Make parameter set vectors and parameter ranges for interactive plotting the same objects (somehow).
 - stop plots resizing as limits change.
+- Add positivity test for hetrogeneous BCs.
