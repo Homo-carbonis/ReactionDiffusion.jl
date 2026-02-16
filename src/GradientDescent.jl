@@ -14,7 +14,7 @@ using Pipe: @pipe
 function optimise(model, cost, vars, params0; in_domain=x->true, sample=nothing, η=0.001, β₁ = 0.02, β₂=0.001, ϵ=0.001, maxsteps=100, savepath=false, kwargs...)
     _simulate = simulate(model; kwargs...)
     function _cost(sol)
-        (isempty(sol) || any(ismissing, sol.u)) && return Inf
+        (isempty(sol) || any(ismissing, sol.u)) && return 1.0
         isnothing(sample) ? cost(only(sol.u)...) : cost(sol.u)
     end
 
@@ -32,23 +32,27 @@ function adam(cost, p, η, β₁, β₂, ϵ; maxsteps=1000)
     m = zero(p)
     v = zero(p)
     path=[p]
+    c = 1.0
     for i in 1:maxsteps
         print("$(i), ")
+        c′ = cost(p)
         J = vec(FiniteDiff.finite_difference_jacobian(cost, p))
         @show J
-        norm(J) < ϵ && return path
-        if !all(isfinite.(J))
-            p = path[end] # Backtrack if p is unstable.
-            η /= 2  # Reduce learning rate.
-            @warn "Retrying with η = $(η)."
+        @show c′
+        if !(all(isfinite,J) && (c′ < c))
+            p = path[end] # Backtrack if p is unstable or cost hits 1.0.
+            # η /= 2  # Reduce learning rate.
             continue
         end
         push!(path, p)
+        norm(J) < ϵ && return path
+        c=c′
         m = β₁*m + (1-β₁) * J
         v = β₂*v + (1-β₂) * J.^2
         m̂ = m/(1-β₁^i)
         v̂ = v/(1-β₂^i)
-        p = p - η * m̂./(sqrt.(v̂) .+ eps())
+        δp = η * m̂./(sqrt.(v̂) .+ eps())
+        p = p - δp
     end
     @warn "Maxiters exeeded. Optimum not found."
     path

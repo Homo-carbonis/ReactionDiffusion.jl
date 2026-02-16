@@ -109,6 +109,16 @@ using Test
         u,t = transform(sol)
         @test u ≈ X rtol=1e-2;
     end
+    @testset "non-negative" begin
+        B = [-pi,0] # Inward flux
+        IC = [1.0]
+        make_prob,transform = pseudospectral_problem([U], R, D, B, IC, n)
+        prob = make_prob(Dict())
+        sol = solve(prob, ETDRK4(); tspan=(0.0,2.0), dt=dt)
+        @test successful_retcode(sol)
+        u,t = transform(sol)
+        @test all(>(0), u)
+    end
 end
 
 end;

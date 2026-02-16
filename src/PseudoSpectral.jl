@@ -11,7 +11,6 @@ const x = only(@variables(x))
 "Construct a SplitODEProblem to solve a reaction diffusion system with reflective boundaries.
 Returns the SplitODEProblem with solutions in the frequency (DCT-1) domain and a FFTW plan to transform solutions back to the spatial domain."
 function pseudospectral_problem(species, reaction_rates, diffusion_rates, boundary_conditions, initial_conditions, num_verts; noise=1e-4, kwargs...)
-    @show reaction_rates, diffusion_rates, boundary_conditions, initial_conditions
     n = num_verts
     m = length(species)
     

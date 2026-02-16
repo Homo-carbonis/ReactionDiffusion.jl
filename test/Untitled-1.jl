@@ -22,5 +22,5 @@ end
 function Φ4(a,b,n)
     a=a'
     b=b'
-    [0.0 ; stack(2*(n-1)/sqrt(2*(n-1))*(a*(-1)^i+b*(-1)^(2i)) for i in 2:n; dims=1)]
+    [0.0 ; stack(2*(n-1)/sqrt(2*(n-1))*(a*(-1)^2i+b*(-1)^i) for i in 2:n; dims=1)]
 end

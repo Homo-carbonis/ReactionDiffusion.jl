@@ -45,9 +45,16 @@ function simulate(model; output_func=tuple, full_solution=false, alg=ETDRK4(), n
         function _output_func(sol,i)
             attempt = sol.prob.p.attempt
             u,t = transform(sol; full_solution=full_solution)
-            out = output_func(u,t)
-            repeat = !successful_retcode(sol) && attempt < max_attempts
-            next!(progress) # Advance progress bar.
+
+            if successful_retcode(sol)
+                out = output_func(u,t)
+                repeat = false
+                next!(progress) # Advance progress bar.
+            else
+                out = missing
+                repeat = true
+            end
+            
             (out, repeat)
         end
             
