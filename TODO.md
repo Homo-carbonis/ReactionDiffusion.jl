@@ -2,6 +2,7 @@
 - Try GPU acceleration
 - Allow for transport processes other than classical diffusion.
 + Support default parameters as defined with `@parameters a=2.0` etc.
++ Use Catalyst syntax for ICs
 + Access solutions by species rather than integer index.
 + Don't rely on consistant order of species.
 - Accept parameter values given as integers.
@@ -15,3 +16,5 @@
 - Make parameter set vectors and parameter ranges for interactive plotting the same objects (somehow).
 - stop plots resizing as limits change.
 - use @debug for output such as repeated attempts.
++ Use observables.
++ Use @ivs for x.
