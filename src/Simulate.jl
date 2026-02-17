@@ -9,6 +9,8 @@ using OrdinaryDiffEqExponentialRK: ETDRK4
 using ProgressMeter: Progress, BarGlyphs, next!
 
 using Symbolics:Num #temp
+
+using Logging: with_logger, ConsoleLogger, stderr, Error
 """
     simulate(model, params; output_func=nothing, full_solution=false, alg=ETDRK4(), num_verts=64, dt=0.1, max_attempts = 4, tol=1e-4, kwargs...)
 
@@ -52,9 +54,8 @@ function simulate(model; output_func=tuple, full_solution=false, alg=ETDRK4(), n
                 next!(progress) # Advance progress bar.
             else
                 out = missing
-                repeat = true
+                repeat = attempt < max_attempts
             end
-            
             (out, repeat)
         end
             
@@ -65,7 +66,10 @@ function simulate(model; output_func=tuple, full_solution=false, alg=ETDRK4(), n
         end
 
         ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
-        solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(tol), kwargs...)
+        
+        with_logger(ConsoleLogger(stderr, Error)) do
+            solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(tol), verbose=false, kwargs...)
+        end
     end
 end
 
