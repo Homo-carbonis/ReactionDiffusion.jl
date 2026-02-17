@@ -5,6 +5,11 @@ using Base.Iterators: flatmap, partition
 
 using LinearAlgebra: norm
 
+#tmp
+using Pipe: @pipe 
+using Optim
+using ReactionDiffusion.Util: zip_dict
+
 reaction = @reaction_network begin
     (αₘ¹ + αₘ²*M)/(1+E),    M --> ∅
     αₑ,                    E --> ∅
@@ -36,10 +41,11 @@ const tmax = 5e5
 ##
 
 params0 = dict(L=L1, Dₘ=1e1, Dₑ=1e-1, αₘ¹ = 1e-5, αₘ² = 1e0, αₑ = 1e-4, ηₘ = 1e0, βₑ = 1e-3, T=1e-3, h=4.0)
-timeseries_plot(model,params0; dt=3.0, tspan=tmax, noise=0.01, max_attempts=3, num_verts=16, normalise=false, hide_y=false, species=[:M])
+timeseries_plot(model,params0; dt=3.0, tspan=tmax, noise=0.01, max_attempts=1, num_verts=32, normalise=false, hide_y=false, species=[:M])
 
 ##
 function isvalid(sol)
+    ismissing(sol) && return false
     U,t=sol
     u=U[:,1]
     n=length(u)
@@ -51,14 +57,12 @@ function isvalid(sol)
     all([maxvalid, minvalid, midvalid, quartervalid, tvalid])
 end
 
-
-function σ(sol)
+function σ(sol; points=3)
     (U1,t1),(U2,t2) = sol
     u1=U1[:,1]
     u2=U2[:,1]
     n=length(u1)
-    r = [0.25,0.5,0.75]
-    i = n*r .|> floor .|> Int
+    i = floor.(Int, range(0,n,points+2)[2:end-1])
     T = u1[i]
     i′ = [findfirst(<(t), u2) for t in T]
     any(isnothing, i′) && return 1.0
@@ -67,15 +71,15 @@ function σ(sol)
     mean(abs.(x-x′))
 end
 
-function σ2(sol)
-    (U1,t1),(U2,t2) = sol
-    u1=U1[:,1]
-    u2=U2[:,1]
-    n=length(u1)
-    r = [0.25,0.5,0.75]
-    i = n*r .|> floor .|> Int
-    norm(u1[i] - u2[i])
-end
+
+# function σ(sol; points=3)
+#     (U1,t1),(U2,t2) = sol
+#     u1=U1[:,1]
+#     u2=U2[:,1]
+#     n=length(u1)
+#     i = floor.(Int, range(0,n,points+2)[2:end-1])
+#     norm(u1[i] - u2[i])
+# end
 
 
 cost(sol) = all(isvalid,sol) ? σ(sol) : 1.0
@@ -90,14 +94,36 @@ decrange(start,stop) = logrange(10.0^start,10.0^stop,stop-start+1)
 params = product(Dₘ=decrange(-1,1), Dₑ=decrange(-1,1), αₘ¹=decrange(-5,0), αₘ²=decrange(-3,2), αₑ=decrange(-5,0), ηₘ=decrange(-1,1), βₑ=decrange(-4,-2), T=decrange(-5,-3), h=[2.0,4.0], L=[100.0])
 
 ##
-_params = rand(params, 100)
-sol = simulate(model,_params; dt=3.0, tspan=tmax, noise=0.01, max_attempts=2, num_verts=8)
+_params = rand(params, 10)
+sol = simulate(model,_params; dt=1.0, tspan=tmax, noise=0.01, max_attempts=1, num_verts=16)
 valid = findall(isvalid, sol.u)
 
 ##
 vars = [:Dₘ,:Dₑ,:αₘ¹,:αₘ²,:αₑ,:ηₘ,:βₑ,:T]
-params0=_params[valid[2]]
-optimise(model,cost,vars,params0; η=1e-7, β₁=0.9, β₂=0.999, sample=sample, tspan=tmax, dt=0.5, num_verts=32, maxsteps=50, max_attempts=1)
+params0=_params[valid][1]
+
+p_min=[params[1][v] for v in vars]
+p_max=[params[end][v] for v in vars]
+
+
+function optimise2(model, cost, vars, params0; in_domain=x->true, sample=nothing, kwargs...)
+    _simulate = simulate(model; kwargs...)
+    function _cost(sol)
+        (isempty(sol) || any(ismissing, sol.u)) && return 1.0
+        isnothing(sample) ? cost(only(sol.u)...) : cost(sol.u)
+    end
+
+    _sample = something(sample, x->[x])
+
+    __cost(p) = @pipe p |> zip_dict(vars,_) |> merge(params0, _) |> _sample |> filter(in_domain,_) |> _simulate |> _cost
+
+    p = [params0[v] for v in vars]
+    callback(state) = state.value <= 0.1
+    optimize(__cost, p_min, p_max, p, SAMIN(verbosity=3), Optim.Options(iterations=10000))
+end
+
+optimise2(model,cost,vars,params0; sample=sample, tspan=tmax, dt=0.5, num_verts=8, max_attempts=1)
+
 ##
 
 ##
