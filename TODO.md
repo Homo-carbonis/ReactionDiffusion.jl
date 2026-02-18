@@ -18,3 +18,4 @@
 - use @debug for output such as repeated attempts.
 + Use observables.
 + Use @ivs for x.
+- Show results for different parameters on the same plot.

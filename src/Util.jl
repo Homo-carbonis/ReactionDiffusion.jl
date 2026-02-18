@@ -93,6 +93,9 @@ ensure_vector(x) = [x]
 ensure_function(f::Function) = f
 ensure_function(x) = _ -> x
 
+decrange(start,stop) = logrange(10.0^start,10.0^stop,stop-start+1)
+
+
 # Arrays
 """
 Modified version of `stack` which returns stacks of zero depth when `iter` is empty instead of throwing an error.
