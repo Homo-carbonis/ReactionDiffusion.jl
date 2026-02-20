@@ -9,7 +9,7 @@ using Pipe: @pipe
 using Optim: optimize, SAMIN, Options
 
 
-function optimise(model, cost, vars, params_min, params_max, params0; in_domain=x->true, sample=nothing, max_steps=10000, kwargs...)
+function optimise(model, cost, vars, params_min, params_max, params0; in_domain=x->true, sample=nothing, max_steps=10000, verbosity=1, kwargs...)
     _simulate = simulate(model; kwargs...)
     function _cost(sol)
         (isempty(sol) || any(ismissing, sol.u)) && return 1.0
@@ -24,7 +24,7 @@ function optimise(model, cost, vars, params_min, params_max, params0; in_domain=
     p_max = [params_max[v] for v in vars]
     p0 = [params0[v] for v in vars]
     callback(state) = state.value <= 0.1
-    optimize(__cost, p_min, p_max, p0, SAMIN(verbosity=3), Options(iterations=max_steps))
+    optimize(__cost, p_min, p_max, p0, SAMIN(verbosity=verbosity), Options(iterations=max_steps, callback=s -> s.f_x <= 0.0))
 end
 
 
