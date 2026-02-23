@@ -225,20 +225,20 @@ Defaults are used for values missing from `params`.
 function parameter_set(model, params)
     set = ParameterSet()
     
-    for rs in reaction_parameters(model)
-        set[rs] = get(params, nameof(rs), 1.0)
+    for p in reaction_parameters(model)
+        add_parameter!(set,params, p, 1.0)
     end
 
-    for ds in diffusion_parameters(model)
-        set[ds] = get(params, nameof(ds), 0.0)
+    for p in diffusion_parameters(model)
+        add_parameter!(set,params, p, 0.0)
     end
 
-    for ds in boundary_parameters(model)
-        set[ds] = get(params, nameof(ds), 0.0)
+    for p in boundary_parameters(model)
+        add_parameter!(set,params, p, 0.0)
     end
     
-    for is in initial_condition_parameters(model)
-        set[is] = get(params, nameof(is), 0.0)
+    for p in initial_condition_parameters(model)
+        add_parameter!(set,params, p, 0.0)
     end
 
     # Domain size
@@ -251,5 +251,18 @@ function parameter_set(model, params)
 end
 
 parameter_set(params::ParameterSet) = params
+
+
+function add_parameter!(set, params, p, default)
+    dims = size(p)
+    if isempty(dims)
+        set[p] = get(params, nameof(p), default)
+    else
+        val = get(params, nameof(p), fill(default, dims))
+        for (q,v) in zip(collect(p), val)
+            set[q] = v
+        end
+    end
+end
 
 end
