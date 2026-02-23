@@ -133,15 +133,17 @@ macro diffusion_system(body)
 end
 
 function diffusion_system(L, body, source)
-    species,parameters,pairs = parse_body(body, source)
+    species,parameters,pairs,exprs = parse_body(body, source)
     rexpr = dict_expr(pairs)
     L = parse_expr!(parameters, L)
     forbidden_symbol_check(parameters)
     psexpr = get_psexpr(parameters, Dict{Symbol, Expr}()) # @parameters
     iv = :($(DEFAULT_IV_SYM) = default_t()) # t
     sexpr = get_usexpr(species, Dict{Symbol, Expr}()) # @species
+    length(sexpr.args)<3 && (sexpr = nothing) #Hack to avoid empty @species when using vectors of species.
     dsexpr = :(DiffusionSystem($L, $rexpr))
     quote
+        $(exprs...)
         $psexpr
         $iv
         $sexpr
@@ -185,19 +187,23 @@ function parse_body(body, source)
     parameters = ExprValues[]
     species = ExprValues[]
     pairs = Pair{ExprValues,ExprValues}[]
-
+    exprs = Expr[]
     for b in body.args
-        r,s = b.args
-        # Handle interpolation of variables
-        r = parse_expr!(parameters,r)
-        s = esc_dollars!(s)
-        push!(pairs, s=>r)
-        push!(species, s)
+        if b.head != :tuple
+            push!(exprs, b)
+        else
+            r,s = b.args
+            # Handle interpolation of variables
+            r = parse_expr!(parameters,r)
+            s = esc_dollars!(s)
+            push!(pairs, s=>r)
+            push!(species, s)
+        end
     end
 
     forbidden_symbol_check(species)
     forbidden_symbol_check(parameters)
-    species, parameters, pairs
+    species, parameters, pairs,exprs
 end
 
 function parse_expr!(parameters, x)
