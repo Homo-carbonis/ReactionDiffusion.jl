@@ -16,7 +16,7 @@ export ODESystem
 using Symbolics: Num, value, get_variables
 import Catalyst # Catalyst.species and Catalyst.parameters would conflict with our functions.
 using Catalyst: numspecies, numparams, assemble_oderhs, @species, @parameters, @reaction_network, ExprValues, get_usexpr, get_psexpr, esc_dollars!, find_parameters_in_rate!, forbidden_symbol_check, DEFAULT_IV_SYM, default_t, setmetadata, ReactionSystem
-using ..Util: subst, ensure_function
+using ..Util: subst, ensure_function, sort_variables
 using Pipe
 # TODO CHECK for unnecessary Num conversions! Alternatively add needed Num conversions (and remove from Turing.jl)
 """
@@ -35,7 +35,6 @@ struct Model
     reaction
     diffusion
     boundary_conditions
-    initial_conditions
 end
 
 SpeciesValues = Dict{Num,Num}
@@ -50,17 +49,17 @@ Base.broadcastable(model::Model) = Ref(model)
 
 # Model getters
 # TODO Eliminate unused getters.
-species(model::Model) = Catalyst.species(model.reaction)
+species(model::Model) = Catalyst.species(model.reaction) |> sort_variables
 parameters(model::Model) = union(reaction_parameters(model), diffusion_parameters(model), initial_condition_parameters(model), boundary_parameters(model))
 
 reaction_parameters(model::Model) = Catalyst.parameters(model.reaction)
-diffusion_parameters(model::Model) = parameters(model.diffusion)
-initial_condition_parameters(model::Model) = parameters(model.initial_conditions)
+diffusion_parameters(model::Model) = parameters(model.diffusion) 
+initial_condition_parameters(model::Model) = model |> initial_conditions |> parameters
 boundary_parameters(model::Model) = union(Catalyst.parameters.(model.boundary_conditions)...)
 
 reaction_rates(model) = assemble_oderhs(model.reaction, species(model))
 diffusion_rates(model::Model, default=0.0) = [get(model.diffusion.rates, s, default) for s in species(model)]
-initial_conditions(model::Model, default=0.0) = [get(model.initial_conditions, s, default) for s in species(model)]
+initial_conditions(model::Model, default=0.0) = [get(defaults(model.reaction), s, default) for s in species(model)]
 
 function boundary_conditions(model::Model)
     b0,b1 = model.boundary_conditions
@@ -150,8 +149,8 @@ function diffusion_system(L, body, source)
 end
 
 parameters(ds::DiffusionSystem) = union(get_variables(ds.domain_size), parameters(ds.rates))
-parameters(v::SpeciesValues) = @pipe v |> values .|> get_variables |> union(_...,[]) |> Num.(_)
-
+parameters(v::Vector) = @pipe v .|> get_variables |> union(_...,[]) |> Num.(_)
+parameters(v::Dict) = v |> values |> collect |> parameters
 
 """
     @initial_conditions begin IC, species;... end
