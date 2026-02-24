@@ -258,7 +258,10 @@ function add_parameter!(set, params, p, default)
     if isempty(dims)
         set[p] = get(params, nameof(p), default)
     else
-        val = get(params, nameof(p), fill(default, dims))
+        val = get(params, nameof(p), default)
+        if isempty(size(val))
+            val = fill(val,dims)
+        end
         for (q,v) in zip(collect(p), val)
             set[q] = v
         end

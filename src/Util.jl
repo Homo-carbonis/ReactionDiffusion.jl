@@ -32,7 +32,19 @@ unzip_dict(dict) = (collect(keys(dict)), collect(values(dict)))
 ## Symbolics 
 "Sort parameters by name."
 sort_variables(p) = sort(p, by=_nameof)
-_nameof(v) = isspecies(v) ? nameof(v.f) : nameof(v)
+
+"Handle inconsistent use of name property in Symbolics.jl"
+function _nameof(v)
+    if haspropety(v,:name)
+        nameof(v)
+    elseif hasproperty(v,:f) && hasproperty(v.f,:name)
+        nameof(v.f)
+    elseif hasproperty(v,:val) && hasproperty(v.val,:arguments)
+        Symbol(v.val.arguments...)
+    else
+        error("Object $(show(v)) has no name.")
+    end
+end
 
 
 "Extract variables from a (possibly nested) collection of expressions and sort them by name."
