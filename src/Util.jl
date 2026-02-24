@@ -35,7 +35,7 @@ sort_variables(p) = sort(p, by=_nameof)
 
 "Handle inconsistent use of name property in Symbolics.jl"
 function _nameof(v)
-    if haspropety(v,:name)
+    if hasproperty(v,:name)
         nameof(v)
     elseif hasproperty(v,:f) && hasproperty(v.f,:name)
         nameof(v.f)
