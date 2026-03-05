@@ -7,6 +7,7 @@ using FiniteDiff
 using StatsBase: sample
 using Pipe: @pipe
 using Optim: optimize, SAMIN, Options
+using OptimizationBase, OptimizationBBO
 
 
 function optimise(model, cost, vars, params_min, params_max, params0; in_domain=x->true, sample=nothing, max_steps=10000, verbosity=1, kwargs...)
@@ -23,8 +24,10 @@ function optimise(model, cost, vars, params_min, params_max, params0; in_domain=
     p_min = [params_min[v] for v in vars]
     p_max = [params_max[v] for v in vars]
     p0 = [params0[v] for v in vars]
-    callback(state) = state.value <= 0.1
-    optimize(__cost, p_min, p_max, p0, SAMIN(verbosity=verbosity), Options(iterations=max_steps, callback=s -> s.f_x <= 0.0))
+    # callback(state) = state.value <= 0.1
+    # optimize(__cost, p_min, p_max, p0, SAMIN(verbosity=verbosity), Options(iterations=max_steps, callback=s -> s.f_x <= 0.0))
+    prob = OptimizationProblem(__cost, p0)
+    solve(prob, BBO_adaptive_de_rand_1_bin())
 end
 
 
