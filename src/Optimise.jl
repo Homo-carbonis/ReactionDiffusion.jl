@@ -1,5 +1,5 @@
 module Optimise
-export optimise, plot_cost
+export optimise, optimisation_problem, plot_cost
 
 using ..Util: zip_dict, tmap
 using ..Simulate
@@ -9,8 +9,18 @@ using Pipe: @pipe
 using Optim: optimize, SAMIN, Options
 using OptimizationBase, OptimizationBBO
 
+"""
+    optimise(model, cost, vars, params_min, params_max, params0; in_domain=x->true, sample=nothing, optimiser=BBO_adaptive_de_rand_1_bin(), kwargs...)
 
-function optimise(model, cost, vars, params_min, params_max, params0; in_domain=x->true, sample=nothing, max_steps=10000, verbosity=1, kwargs...)
+    Choose parameters to minimise `cost` over the steady state of model.
+"""
+    function optimise(args...; optimiser=BBO_adaptive_de_rand_1_bin(), kwargs...)
+    prob = optimisation_problem(args...; kwargs...)
+    solve(prob, optimiser)
+end
+
+
+function optimisation_problem(model, cost, vars, params_min, params_max, params0; min_cost=0.0, in_domain=x->true, sample=nothing, kwargs...)
     _simulate = simulate(model; kwargs...)
     function _cost(sol)
         (isempty(sol) || any(ismissing, sol.u)) && return 1.0
@@ -19,17 +29,16 @@ function optimise(model, cost, vars, params_min, params_max, params0; in_domain=
 
     _sample = something(sample, x->[x])
 
-    __cost(p) = @pipe p |> zip_dict(vars,_) |> merge(params0, _) |> _sample |> filter(in_domain,_) |> _simulate |> _cost
+    __cost(p,_) = @pipe p |> zip_dict(vars,_) |> merge(params0, _) |> _sample |> filter(in_domain,_) |> _simulate |> _cost
 
     p_min = [params_min[v] for v in vars]
     p_max = [params_max[v] for v in vars]
     p0 = [params0[v] for v in vars]
-    # callback(state) = state.value <= 0.1
-    # optimize(__cost, p_min, p_max, p0, SAMIN(verbosity=verbosity), Options(iterations=max_steps, callback=s -> s.f_x <= 0.0))
-    prob = OptimizationProblem(__cost, p0)
-    solve(prob, BBO_adaptive_de_rand_1_bin())
+    function callback(state, cost)
+        cost <= min_cost
+    end
+    OptimizationProblem(__cost, p0; lb=p_min, ub=p_max, callback=callback)
 end
-
 
 function plot_cost(model, cost, vars, params; in_domain=x->true, sample=nothing, kwargs...)
     _simulate = simulate(model; kwargs...)
