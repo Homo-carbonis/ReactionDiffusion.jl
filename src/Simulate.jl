@@ -83,7 +83,7 @@ function simulate_pseudospectral(model; output_func=tuple, full_solution=false, 
         ensemble_prob = EnsembleProblem(make_prob(params[1]); output_func=_output_func, prob_func=prob_func)
         
         with_logger(ConsoleLogger(stderr, Error)) do
-            solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(tol), verbose=false, kwargs...)
+            solve(ensemble_prob, alg; trajectories=length(params), callback=steady_state_callback(tol), verbose=false, save_on=full_solution, kwargs...)
         end
     end
 end
